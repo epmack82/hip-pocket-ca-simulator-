@@ -1,6 +1,74 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronRight, Send, Package, ArrowRight, Loader2, AlertCircle, RotateCcw, Trash2 } from 'lucide-react';
 
+// ===== SCENARIO DATA (MOVED OUTSIDE COMPONENT) =====
+const BASE_SCENARIOS = [
+  {
+    id: 1,
+    name: 'School Visit — Dara Lam Primary School',
+    location: 'Dara Lam Primary School',
+    hadrFocus: 'Emergency shelter capacity for displaced populations',
+    narrative: `You arrive at Dara Lam Primary School. The Principal meets you at the gate, wiping chalk dust from her hands. "Welcome — we don't get many visitors out here. We have 142 students, six teachers, and a building that's seen better days, but it's solid." 
+
+She gestures toward four classrooms, a shared multipurpose room, a hand-dug well, and two latrines around back. A handful of kids peer at you from a doorway before a teacher ushers them back to lessons.
+
+The Principal waits, hands clasped, clearly curious why a Civil Affairs team would be interested in her school.`,
+    keyStakeholders: ['School Principal'],
+    suggestedProducts: [
+      'School Infrastructure Assessment (ATP 3-57.50)',
+      'KLE — School Principal',
+      'HADR Shelter Recommendation Memo'
+    ],
+    referenceStandards: {
+      planned: 'PLANNED ASSESSMENT (STP 41-38B34, para 15993-16128): Conducts a full ATP 3-57.50 school assessment (condition, capacity ~300, water, sanitation, security, accessibility using ASCOPE), interviews the Principal on disaster readiness, documents specific numbers and contact info, files a formal assessment with Battalion S-9 via CIM Cell, and explicitly recommends the school for the HADR contingency plan. Result: school becomes a documented 300-person shelter asset, used effectively when disaster strikes.',
+      deliberate: 'DELIBERATE ASSESSMENT (STP 41-38B34, para 7215-7330): Visits the school, conducts methodical assessment per requirements, observes general condition, talks with the Principal to understand disaster readiness, notes rough capacity (~300), documents findings (Who/What/Where/When/Why), and files assessment with S-9. Result: school is a known but unformalized asset, used with some delay during a disaster.',
+      initial: 'INITIAL ASSESSMENT (STP 41-38B34, para 7111-7203): Brief initial visit to validate assumptions and identify follow-on assessment priorities. Observes school condition, meets Principal, notes general capacity, documents briefly. Result: school baseline is known but not fully assessed; asset may be incomplete or unavailable during initial disaster response.'
+    }
+  },
+  {
+    id: 2,
+    name: 'Fire Station Visit — Dara Lam',
+    location: 'Dara Lam Fire Station',
+    hadrFocus: 'Regional fire response capability',
+    narrative: `The fire station is a single open bay with one aging fire truck parked inside, its paint faded from years of dry-season sun. The Fire Chief, a wiry man in a worn uniform, wipes his hands on a rag as he greets you.
+
+"Four of us total," he says, nodding toward two younger firefighters checking hose connections nearby. "One truck. We make do."
+
+He glances toward the tree line at the edge of town — dry brush stretches for kilometers beyond it. "Dry season's coming. It's always... interesting." He doesn't elaborate, but the look on his face says he's seen fires get away from him before.`,
+    keyStakeholders: ['Fire Chief'],
+    suggestedProducts: [
+      'Fire Station Assessment (ATP 3-57.50)',
+      'KLE — Fire Chief',
+      'HADR Capability Gap Memo'
+    ],
+    referenceStandards: {
+      planned: 'PLANNED ASSESSMENT (STP 41-38B34, para 15993-16128): Conducts a full ATP 3-57.50 Fire Station Assessment using ASCOPE framework (equipment, personnel, training, mutual aid, HAZMAT, rescue capability), documents specific gaps (1 truck vs. regional need, no mutual aid agreements, training shortfalls), files assessment with S-4 and S-9, and recommends equipment/training support. Result: Brigade allocates equipment and training; fire response improves before dry season.',
+      deliberate: 'DELIBERATE ASSESSMENT (STP 41-38B34, para 7215-7330): Talks methodically with the Fire Chief, observes the facility in detail, documents general limitations and gaps, files an assessment summary with S-9 noting resource constraints. Result: limitation is documented but coordination with S-4 for resource support is missing; response remains constrained.',
+      initial: 'INITIAL ASSESSMENT (STP 41-38B34, para 7111-7203): Brief informal chat with Fire Chief, observe facility, note general constraints and staffing level. No formal documentation or filing. Result: no baseline exists; Brigade assumes adequate capability; gaps go unaddressed.'
+    }
+  },
+  {
+    id: 3,
+    name: 'Water Treatment Plant — Dara Lam',
+    location: 'Dara Lam Water Treatment Plant',
+    hadrFocus: 'Public health risk from water contamination',
+    narrative: `The water treatment plant hums quietly, an older facility with rust streaks down its concrete walls. The Plant Manager walks you through it with practiced pride — "Regular maintenance, good system" — but a few steps behind him, a local health worker catches your eye and falls into step beside you.
+
+Once the Manager is out of earshot, she speaks quietly. "We've had several hookworm cases this month. All from the same neighborhoods — the ones downstream of here." She glances back at the plant. "The testing logs haven't been updated in a while. I don't know if anyone's looked."`,
+    keyStakeholders: ['Water Plant Manager', 'Local Health Worker'],
+    suggestedProducts: [
+      'Water System Assessment (ATP 3-57.50)',
+      'KLE — Health Worker',
+      'Public Health Risk Memo'
+    ],
+    referenceStandards: {
+      planned: 'PLANNED ASSESSMENT (STP 41-38B34, para 15993-16128): Conducts a full ATP 3-57.50 water assessment (source, treatment capacity, distribution, testing frequency, contamination risk, downstream populations), interviews both the Manager and Health Worker, documents specific health risks and testing gaps, files assessment with S-4 (water logistics) and S-1 (population impact), and recommends water quality verification and testing protocol improvements. Result: contamination risk is identified and mitigated; public health crisis is averted.',
+      deliberate: 'DELIBERATE ASSESSMENT (STP 41-38B34, para 7215-7330): Talks with Manager and Health Worker, observes treatment facility and distribution system, notes general health risks, documents rough capacity and testing practices, files summary with S-9. Result: risk is noted but mitigation is delayed; health situation worsens until Brigade acts.',
+      initial: 'INITIAL ASSESSMENT (STP 41-38B34, para 7111-7203): Brief visit to plant, casual conversation with Manager, notes general system status. Health risks are not explored. Result: contamination risk goes undetected; population suffers outbreak.'
+    }
+  }
+];
+
 export default function HipPocketV43() {
   // ===== PHASE 1: CHARACTER CREATION STATE =====
   const [screen, setScreen] = useState('loadOrNew');
@@ -52,87 +120,18 @@ export default function HipPocketV43() {
     }
   }, []);
 
-  // ===== SCENARIO DATA (BASE) =====
-  const baseScenarios = [
-    {
-      id: 1,
-      name: 'School Visit — Dara Lam Primary School',
-      location: 'Dara Lam Primary School',
-      hadrFocus: 'Emergency shelter capacity for displaced populations',
-      narrative: `You arrive at Dara Lam Primary School. The Principal meets you at the gate, wiping chalk dust from her hands. "Welcome — we don't get many visitors out here. We have 142 students, six teachers, and a building that's seen better days, but it's solid." 
-
-She gestures toward four classrooms, a shared multipurpose room, a hand-dug well, and two latrines around back. A handful of kids peer at you from a doorway before a teacher ushers them back to lessons.
-
-The Principal waits, hands clasped, clearly curious why a Civil Affairs team would be interested in her school.`,
-      keyStakeholders: ['School Principal'],
-      suggestedProducts: [
-        'School Infrastructure Assessment (ATP 3-57.50)',
-        'KLE — School Principal',
-        'HADR Shelter Recommendation Memo'
-      ],
-      referenceStandards: {
-        planned: 'PLANNED ASSESSMENT (STP 41-38B34, para 15993-16128): Conducts a full ATP 3-57.50 school assessment (condition, capacity ~300, water, sanitation, security, accessibility using ASCOPE), interviews the Principal on disaster readiness, documents specific numbers and contact info, files a formal assessment with Battalion S-9 via CIM Cell, and explicitly recommends the school for the HADR contingency plan. Result: school becomes a documented 300-person shelter asset, used effectively when disaster strikes.',
-        deliberate: 'DELIBERATE ASSESSMENT (STP 41-38B34, para 7215-7330): Visits the school, conducts methodical assessment per requirements, observes general condition, talks with the Principal to understand disaster readiness, notes rough capacity (~300), documents findings (Who/What/Where/When/Why), and files assessment with S-9. Result: school is a known but unformalized asset, used with some delay during a disaster.',
-        initial: 'INITIAL ASSESSMENT (STP 41-38B34, para 7111-7203): Brief initial visit to validate assumptions and identify follow-on assessment priorities. Observes school condition, meets Principal, notes general capacity, documents briefly. Result: school baseline is known but not fully assessed; asset may be incomplete or unavailable during initial disaster response.'
-      }
-    },
-    {
-      id: 2,
-      name: 'Fire Station Visit — Dara Lam',
-      location: 'Dara Lam Fire Station',
-      hadrFocus: 'Regional fire response capability',
-      narrative: `The fire station is a single open bay with one aging fire truck parked inside, its paint faded from years of dry-season sun. The Fire Chief, a wiry man in a worn uniform, wipes his hands on a rag as he greets you.
-
-"Four of us total," he says, nodding toward two younger firefighters checking hose connections nearby. "One truck. We make do."
-
-He glances toward the tree line at the edge of town — dry brush stretches for kilometers beyond it. "Dry season's coming. It's always... interesting." He doesn't elaborate, but the look on his face says he's seen fires get away from him before.`,
-      keyStakeholders: ['Fire Chief'],
-      suggestedProducts: [
-        'Fire Station Assessment (ATP 3-57.50)',
-        'KLE — Fire Chief',
-        'HADR Capability Gap Memo'
-      ],
-      referenceStandards: {
-        planned: 'PLANNED ASSESSMENT (STP 41-38B34, para 15993-16128): Conducts a full ATP 3-57.50 Fire Station Assessment using ASCOPE framework (equipment, personnel, training, mutual aid, HAZMAT, rescue capability), documents specific gaps (1 truck vs. regional need, no mutual aid agreements, training shortfalls), files assessment with S-4 and S-9, and recommends equipment/training support. Result: Brigade allocates equipment and training; fire response improves before dry season.',
-        deliberate: 'DELIBERATE ASSESSMENT (STP 41-38B34, para 7215-7330): Talks methodically with the Fire Chief, observes the facility in detail, documents general limitations and gaps, files an assessment summary with S-9 noting resource constraints. Result: limitation is documented but coordination with S-4 for resource support is missing; response remains constrained.',
-        initial: 'INITIAL ASSESSMENT (STP 41-38B34, para 7111-7203): Brief informal chat with Fire Chief, observe facility, note general constraints and staffing level. No formal documentation or filing. Result: no baseline exists; Brigade assumes adequate capability; gaps go unaddressed.'
-      }
-    },
-    {
-      id: 3,
-      name: 'Water Treatment Plant — Dara Lam',
-      location: 'Dara Lam Water Treatment Plant',
-      hadrFocus: 'Public health risk from water contamination',
-      narrative: `The water treatment plant hums quietly, an older facility with rust streaks down its concrete walls. The Plant Manager walks you through it with practiced pride — "Regular maintenance, good system" — but a few steps behind him, a local health worker catches your eye and falls into step beside you.
-
-Once the Manager is out of earshot, she speaks quietly. "We've had several hookworm cases this month. All from the same neighborhoods — the ones downstream of here." She glances back at the plant. "The testing logs haven't been updated in a while. I don't know if anyone's looked."`,
-      keyStakeholders: ['Water Plant Manager', 'Local Health Worker'],
-      suggestedProducts: [
-        'Water System Assessment (ATP 3-57.50)',
-        'KLE — Health Worker',
-        'Public Health Risk Memo'
-      ],
-      referenceStandards: {
-        planned: 'PLANNED ASSESSMENT (STP 41-38B34, para 15993-16128): Conducts a full ATP 3-57.50 water assessment (source, treatment capacity, distribution, testing frequency, contamination risk, downstream populations), interviews both the Manager and Health Worker, documents specific health risks and testing gaps, files assessment with S-4 (water logistics) and S-1 (population impact), and recommends water quality verification and testing protocol improvements. Result: contamination risk is identified and mitigated; public health crisis is averted.',
-        deliberate: 'DELIBERATE ASSESSMENT (STP 41-38B34, para 7215-7330): Talks with Manager and Health Worker, observes treatment facility and distribution system, notes general health risks, documents rough capacity and testing practices, files summary with S-9. Result: risk is noted but mitigation is delayed; health situation worsens until Brigade acts.',
-        initial: 'INITIAL ASSESSMENT (STP 41-38B34, para 7111-7203): Brief visit to plant, casual conversation with Manager, notes general system status. Health risks are not explored. Result: contamination risk goes undetected; population suffers outbreak.'
-      }
-    }
-  ];
-
   // ===== HELPER: SHUFFLE AND BUILD MISSION SCENARIOS =====
   // Memoize scenarios so they don't rebuild on every render
   const [missionScenarios, setMissionScenarios] = useState([]);
   
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (playerRole && missionDuration) {
-      // Build mission scenarios from baseScenarios with complexity escalation
-      const shuffled = [...baseScenarios].sort(() => Math.random() - 0.5);
+      // Build mission scenarios from BASE_SCENARIOS with complexity escalation
+      const shuffled = [...BASE_SCENARIOS].sort(() => Math.random() - 0.5);
       const missions = [];
       for (let day = 1; day <= missionDuration; day++) {
-        const scenarioId = shuffled[(day - 1) % baseScenarios.length].id;
-        const baseScenario = baseScenarios.find(s => s.id === scenarioId);
+        const scenarioId = shuffled[(day - 1) % BASE_SCENARIOS.length].id;
+        const baseScenario = BASE_SCENARIOS.find(s => s.id === scenarioId);
         // Complexity escalates from 1.0 to 1.4 across mission duration
         const complexityMultiplier = 1.0 + (day / missionDuration) * 0.4;
         missions.push({
@@ -220,7 +219,7 @@ Once the Manager is out of earshot, she speaks quietly. "We've had several hookw
 
   function getSaveDescription(save) {
     if (!save) return null;
-    const scenario = baseScenarios.find(s => s.id === save.scenarioIndex + 1) || baseScenarios[save.scenarioIndex % 3];
+    const scenario = BASE_SCENARIOS.find(s => s.id === save.scenarioIndex + 1) || BASE_SCENARIOS[save.scenarioIndex % 3];
     const location = scenario?.location || 'Unknown';
     const role = save.playerRole.charAt(0).toUpperCase() + save.playerRole.slice(1);
     const mins = Math.floor((Date.now() - new Date(save.timestamp).getTime()) / 60000);
@@ -580,7 +579,7 @@ Respond with only the debrief text, no JSON.`;
                     {save ? (
                       <>
                         <div className="flex-1">
-                          <p className="text-white font-semibold">{baseScenarios.find(s => s.id === (idx % 3) + 1)?.location}</p>
+                          <p className="text-white font-semibold">{BASE_SCENARIOS.find(s => s.id === (idx % 3) + 1)?.location}</p>
                           <p className="text-slate-300 text-sm">Day {save.currentDay} of {save.missionDuration} • {save.playerRole} • {getSaveDescription(save)?.timeAgo}</p>
                         </div>
                         <button
