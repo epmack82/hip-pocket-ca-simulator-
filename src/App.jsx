@@ -126,28 +126,22 @@ Once the Manager is out of earshot, she speaks quietly. "We've had several hookw
   
   useEffect(() => {
     if (playerRole && missionDuration) {
-      // Build scenarios inline to avoid dependency warnings
-      const scenarios = [
-        {
-          location: 'Municipal School',
-          context: 'Teachers report students absent after flooding displaced families.',
-          challenge: 'Assess educational impact and coordinate with LGU for temporary space.',
-          npc: 'Principal Santos',
-        },
-        {
-          location: 'Fire Station',
-          context: 'Equipment damaged; station non-operational. Local volunteer force overwhelmed.',
-          challenge: 'Facilitate equipment acquisition; coordinate with regional fire bureau.',
-          npc: 'Fire Chief Reyes',
-        },
-        {
-          location: 'Water Treatment Plant',
-          context: 'Chlorination system offline; boil-water notice in effect. Supply critically low.',
-          challenge: 'Coordinate logistics; verify system specs for regional support.',
-          npc: 'Plant Manager Ocampo',
-        },
-      ];
-      setMissionScenarios(scenarios);
+      // Build mission scenarios from baseScenarios with complexity escalation
+      const shuffled = [...baseScenarios].sort(() => Math.random() - 0.5);
+      const missions = [];
+      for (let day = 1; day <= missionDuration; day++) {
+        const scenarioId = shuffled[(day - 1) % baseScenarios.length].id;
+        const baseScenario = baseScenarios.find(s => s.id === scenarioId);
+        // Complexity escalates from 1.0 to 1.4 across mission duration
+        const complexityMultiplier = 1.0 + (day / missionDuration) * 0.4;
+        missions.push({
+          ...baseScenario,
+          day,
+          complexityMultiplier,
+          difficultyContext: day === 1 ? 'Introduction' : day === missionDuration ? 'Final Assessment' : 'Ongoing'
+        });
+      }
+      setMissionScenarios(missions);
     }
   }, [playerRole, missionDuration]);
 
