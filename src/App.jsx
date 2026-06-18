@@ -236,7 +236,7 @@ export default function HipPocketV43() {
   // ===== API CALL (UNCHANGED) =====
   async function callClaude(systemPrompt, userMsg) {
     try {
-      const response = await fetch('/api/evaluate', {
+      const response = await fetch('https://hip-pocket-api.onrender.com/api/evaluate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ systemPrompt, userMsg })
@@ -469,7 +469,7 @@ Generate a brief debrief (5-7 sentences) that:
 4. Gives forward guidance
 Respond with only the debrief text, no JSON.`;
 
-      const response = await fetch('/api/debrief', {
+      const response = await fetch('https://hip-pocket-api.onrender.com/api/debrief', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userMsg })
