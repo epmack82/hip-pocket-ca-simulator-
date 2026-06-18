@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronRight, Send, Package, ArrowRight, Loader2, AlertCircle, RotateCcw, Trash2, Save, Download } from 'lucide-react';
+import { ChevronRight, Send, Package, ArrowRight, Loader2, AlertCircle, RotateCcw, Trash2 } from 'lucide-react';
 
 export default function HipPocketV43() {
   // ===== PHASE 1: CHARACTER CREATION STATE =====
@@ -42,9 +42,6 @@ export default function HipPocketV43() {
   const [lastOutcome, setLastOutcome] = useState(null);
   const [pendingAdvance, setPendingAdvance] = useState(false);
   const [lastDeltas, setLastDeltas] = useState({});
-
-  const [debrief, setDebrief] = useState(null);
-  const [discProfile, setDiscProfile] = useState(null);
 
   // ===== LOAD SAVES FROM LOCALSTORAGE ON MOUNT =====
   useEffect(() => {
@@ -144,6 +141,7 @@ Once the Manager is out of earshot, she speaks quietly. "We've had several hookw
   // Memoize scenarios so they don't rebuild on every render
   const [missionScenarios, setMissionScenarios] = useState([]);
   
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (playerRole && missionDuration) {
       setMissionScenarios(buildMissionScenarios());
