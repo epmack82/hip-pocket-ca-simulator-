@@ -235,30 +235,19 @@ export default function HipPocketV43() {
 
   // ===== API CALL (UNCHANGED) =====
   async function callClaude(systemPrompt, userMsg) {
-    const apiKey = process.env.REACT_APP_ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      throw new Error('API key not configured. Add REACT_APP_ANTHROPIC_API_KEY to Vercel environment variables.');
-    }
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
-        messages: [{ role: 'user', content: userMsg }],
-        system: systemPrompt
-      })
-    });
-    const data = await response.json();
-    if (!data.content[0]) throw new Error('No response from Claude');
-    const text = data.content[0].text;
     try {
-      return JSON.parse(text.replace(/```json|```/g, '').trim());
-    } catch {
-      throw new Error('Could not parse AI response');
+      const response = await fetch('/api/evaluate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ systemPrompt, userMsg })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'API error');
+      }
+      return data;
+    } catch (error) {
+      throw new Error(error.message || 'Could not evaluate action');
     }
   }
 
@@ -460,10 +449,6 @@ RESPONSE JSON FORMAT (always include these fields):
   async function generateDebrief(records) {
     setLoading(true);
     try {
-      const apiKey = process.env.REACT_APP_ANTHROPIC_API_KEY;
-      if (!apiKey) {
-        throw new Error('API key not configured');
-      }
       const summary = records.map(r => `${r.scenarioName}: ${r.summaryLabel} (${r.qualityScore} pts)`).join('\n');
       const productsText = allProducts.map(p => `${p.name} (${p.type}) → ${p.recipient}`).join('\n');
       const userMsg = `Review this trainee's CA mission performance and generate a brief encouraging debrief:
@@ -484,21 +469,16 @@ Generate a brief debrief (5-7 sentences) that:
 4. Gives forward guidance
 Respond with only the debrief text, no JSON.`;
 
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
+      const response = await fetch('/api/debrief', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 500,
-          messages: [{ role: 'user', content: userMsg }]
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userMsg })
       });
       const data = await response.json();
-      const debriefText = data.content[0].text;
-      setDebrief(debriefText);
+      if (!response.ok) {
+        throw new Error(data.error || 'API error');
+      }
+      setDebrief(data.text);
       setScreen('debrief');
     } catch (e) {
       setError('Could not generate debrief. You can try again.');
