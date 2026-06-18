@@ -235,9 +235,16 @@ export default function HipPocketV43() {
 
   // ===== API CALL (UNCHANGED) =====
   async function callClaude(systemPrompt, userMsg) {
+    const apiKey = process.env.REACT_APP_ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new Error('API key not configured. Add REACT_APP_ANTHROPIC_API_KEY to Vercel environment variables.');
+    }
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey
+      },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
         max_tokens: 1000,
@@ -453,6 +460,10 @@ RESPONSE JSON FORMAT (always include these fields):
   async function generateDebrief(records) {
     setLoading(true);
     try {
+      const apiKey = process.env.REACT_APP_ANTHROPIC_API_KEY;
+      if (!apiKey) {
+        throw new Error('API key not configured');
+      }
       const summary = records.map(r => `${r.scenarioName}: ${r.summaryLabel} (${r.qualityScore} pts)`).join('\n');
       const productsText = allProducts.map(p => `${p.name} (${p.type}) → ${p.recipient}`).join('\n');
       const userMsg = `Review this trainee's CA mission performance and generate a brief encouraging debrief:
@@ -475,7 +486,10 @@ Respond with only the debrief text, no JSON.`;
 
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey
+        },
         body: JSON.stringify({
           model: 'claude-sonnet-4-6',
           max_tokens: 500,
