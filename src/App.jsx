@@ -124,6 +124,7 @@ Once the Manager is out of earshot, she speaks quietly. "We've had several hookw
   // Memoize scenarios so they don't rebuild on every render
   const [missionScenarios, setMissionScenarios] = useState([]);
   
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (playerRole && missionDuration) {
       // Build mission scenarios from baseScenarios with complexity escalation
