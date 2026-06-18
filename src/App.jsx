@@ -42,6 +42,7 @@ export default function HipPocketV43() {
   const [lastOutcome, setLastOutcome] = useState(null);
   const [pendingAdvance, setPendingAdvance] = useState(false);
   const [lastDeltas, setLastDeltas] = useState({});
+  const [debrief, setDebrief] = useState(null);
 
   // ===== LOAD SAVES FROM LOCALSTORAGE ON MOUNT =====
   useEffect(() => {
