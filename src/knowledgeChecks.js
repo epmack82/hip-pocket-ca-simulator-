@@ -29,10 +29,10 @@ const annexQuestions = [
   },
   {
     id: 'annex-authorities',
-    prompt: 'What should the team confirm before promising assistance or support during an engagement?',
-    options: ['Its authorities, constraints, approval requirements, and available resources', 'Whether the promise will improve the immediate score', 'Whether another team has already made a similar promise'],
+    prompt: 'A stakeholder asks the team to promise assistance or a specific outcome. What is the appropriate response?',
+    options: ['Do not promise an outcome; acknowledge and clarify the request, explain the team’s limitations, and coordinate it through authorized channels', 'Promise support after checking whether resources appear available', 'Make an informal commitment so the stakeholder knows the team is trying to help'],
     answer: 0,
-    review: 'Review authorities, constraints, and coordinating instructions. The team should promise only what it is authorized and able to deliver.'
+    review: 'The team must not promise assistance or an outcome it does not control. Listen and clarify the need, be transparent about limitations, document the request, and coordinate possible support through the appropriate authorized channel without creating an expectation of delivery.'
   },
   {
     id: 'annex-assessment',

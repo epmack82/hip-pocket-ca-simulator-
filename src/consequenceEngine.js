@@ -23,6 +23,11 @@ const CATEGORY_RULES = [
     id: 'mission-abandonment',
     label: 'Deliberate abandonment of the mission or assigned engagement',
     pattern: /\b(?:abandon|ditch|blow off|walk away from|leave)\s+(?:the\s+)?(?:mission|task|assignment|engagement|stakeholders?)\b|\bignore\s+(?:everyone|the\s+(?:team|stakeholders?|mission|task|assignment))\b[\s\S]{0,100}\b(?:go|head|leave|depart)\b|\b(?:go|head|leave|depart)(?:s|ed|ing)?\s+(?:to|for)\s+(?:the\s+)?(?:strip club|bar|casino|party|personal entertainment)\b/i
+  },
+  {
+    id: 'unauthorized-promise',
+    label: 'Unauthorized promise of assistance, funding, material, or a specific outcome',
+    pattern: /\b(?:i|we|our team)\s+(?:promise|guarantee|commit(?:ted)?\s+to)\b|\b(?:i|we|our team)(?:\s+will|'ll)\s+(?:(?:fund|pay for|build|repair|replace|purchase|buy|donate)\b|(?:provide|deliver|supply|give|get you|make sure you get)\b[\s\S]{0,60}\b(?:assistance|support|funds?|money|materials?|resources?|equipment|supplies|window|door|roof|vehicle|medicine|food|water|project|renovation)\b)|\b(?:tell|assure)(?:ed|ing)?\b[\s\S]{0,80}\b(?:we|i|our team)(?:\s+will|'ll|\s+would)\s+(?:provide|deliver|fund|pay for|build|repair|replace|purchase|buy|donate|supply|give|get)\b/i
   }
 ];
 
@@ -41,12 +46,19 @@ export function detectMisconduct(prompt = '', scenario = {}) {
 
   const stakeholders = (scenario.keyStakeholders || []).slice(0, 2);
   const abandonmentOnly = matched.every(rule => rule.id === 'mission-abandonment');
+  const promiseOnly = matched.every(rule => rule.id === 'unauthorized-promise');
   const relationshipShifts = abandonmentOnly
     ? {
         'Ahmad (Interpreter)': -8,
         'SSG Davis (CMOC)': -15,
         ...Object.fromEntries(stakeholders.map(name => [name, -10]))
       }
+    : promiseOnly
+      ? {
+          'Ahmad (Interpreter)': -3,
+          'SSG Davis (CMOC)': -20,
+          ...Object.fromEntries(stakeholders.map(name => [name, -8]))
+        }
     : {
         'Ahmad (Interpreter)': -35,
         'SSG Davis (CMOC)': -40,
@@ -54,6 +66,8 @@ export function detectMisconduct(prompt = '', scenario = {}) {
       };
   const narrative = abandonmentOnly
     ? `The team turns away from the assigned engagement for personal activity unrelated to the mission. ${stakeholders[0] || 'The waiting stakeholders'} sees the team leave without explanation, reducing confidence that future commitments will be honored. The missed engagement and failure to remain mission-focused are reported to CMOC, while the interpreter can no longer facilitate the meeting because the team has departed.`
+    : promiseOnly
+      ? `The stakeholder understands the team’s statement as a firm commitment of U.S. support. No verified authority, funding source, procurement path, or delivery timeline exists, but the expectation is now part of the relationship and may spread through the community. CMOC must clarify what was said, correct the expectation, and manage the resulting trust, equity, and command-support implications. Personal payment or an informal workaround would not retroactively authorize the promise and could create additional ethical, fiscal, and precedent concerns.`
     : 'The action causes an immediate breakdown in trust and mission legitimacy. The interpreter steps away from the team, unwilling to be associated with the conduct and concerned that continued participation could create personal risk. Local stakeholders withdraw cooperation, while CMOC and the chain of command halt normal engagement activity so the incident, resulting harm, and required accountability can be addressed.';
   const persistentEffects = abandonmentOnly
     ? [
@@ -62,6 +76,14 @@ export function detectMisconduct(prompt = '', scenario = {}) {
         'CMOC requires an explanation and renewed mission focus.',
         'Information and relationship opportunities at this location were lost.'
       ]
+    : promiseOnly
+      ? [
+          'The stakeholder and community may now expect delivery of the promised support.',
+          'Failure to deliver can damage trust in the team, command, and future engagements.',
+          'CMOC must document the statement, verify authorities and resources, and correct expectations.',
+          'The promise may create equity, precedent, procurement, funding, and coordination problems.',
+          'Personal funds or informal acquisition do not make the original commitment authorized.'
+        ]
     : [
         'Interpreter support is unavailable because of safety, trust, and association concerns.',
         'Local stakeholders are reluctant to engage or share information.',
@@ -72,14 +94,26 @@ export function detectMisconduct(prompt = '', scenario = {}) {
   return {
     id: `MISCONDUCT-${matched.map(rule => rule.id).join('-')}`,
     severity: matched.length >= 2 || matched.some(rule => rule.id === 'destructive-misconduct') ? 'critical' : 'serious',
-    title: abandonmentOnly ? 'Deliberate mission abandonment' : 'Mission-compromising misconduct',
+    title: abandonmentOnly
+      ? 'Deliberate mission abandonment'
+      : promiseOnly
+        ? 'Unauthorized promise or commitment'
+        : 'Mission-compromising misconduct',
     categories: matched.map(rule => rule.label),
     relationshipShifts,
     narrative,
     persistentEffects,
     routingRationale: abandonmentOnly
       ? 'Notify CMOC of the missed engagement, document lost access and information requirements, and re-establish mission priorities before resuming activity.'
+      : promiseOnly
+        ? 'Immediately document exactly what was said and understood; notify CMOC and the chain of command; verify authorities, funding, and coordination channels; and correct stakeholder expectations without making a replacement promise.'
       : 'Immediately notify the chain of command and appropriate authorities; preserve facts, address safety and harm, correct false reporting, and do not continue routine engagement as though the incident did not occur.',
+    progressDiscovery: promiseOnly
+      ? 'A stakeholder now believes the team committed to provide assistance or a specific outcome.'
+      : 'Trust and mission legitimacy have been severely damaged by the team action.',
+    progressGaps: promiseOnly
+      ? ['Exact words used and what the stakeholder understood', 'Actual authority, funding, and delivery capability', 'Who else has been told about the promise', 'Plan to correct expectations and preserve the relationship']
+      : ['Command disposition and investigative findings', 'Extent of civilian and property harm', 'Requirements for correction, restitution, and renewed access'],
     status: 'active',
     sourceAction: action
   };
@@ -119,8 +153,8 @@ export function applyConsequenceRules(result = {}, prompt = '', scenario = {}, e
         product: null,
         feedbackTone: 'direct',
         progress: {
-          discoveries: ['Trust and mission legitimacy have been severely damaged by the team action.'],
-          informationGaps: ['Command disposition and investigative findings', 'Extent of civilian and property harm', 'Requirements for correction, restitution, and renewed access'],
+          discoveries: [detected.progressDiscovery],
+          informationGaps: detected.progressGaps,
           leads: [],
           completedProducts: [],
           dimensionScores: {
