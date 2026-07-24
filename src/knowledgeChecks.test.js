@@ -31,3 +31,17 @@ test('second attempts use different ASCOPE and PMESII-PT questions', () => {
     expect(second.some(id => first.includes(id))).toBe(false);
   }
 });
+
+test('Annex K refresher teaches that the team does not promise assistance or outcomes', () => {
+  const annexQuestions = [
+    ...getKnowledgeQuestions('annex', 1, 'HIP-NO-PROMISES'),
+    ...getKnowledgeQuestions('annex', 2, 'HIP-NO-PROMISES')
+  ];
+  const question = annexQuestions.find(item => item.id === 'annex-authorities');
+  const correctOption = question.options[question.answer];
+
+  expect(question.prompt).toContain('asks the team to promise');
+  expect(correctOption).toContain('Do not promise an outcome');
+  expect(question.review).toContain('must not promise assistance or an outcome');
+  expect(question.review).not.toContain('promise only what');
+});

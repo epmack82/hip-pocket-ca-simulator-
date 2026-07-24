@@ -111,7 +111,7 @@ Coordination gap: ${blank}
 4. ENGAGEMENT PLAN
 Priority engagement: ${blank}
 Information to confirm: ${blank}
-Commitments or authorities requiring approval: ${blank}
+Requests, proposed actions, or authorities requiring coordination/approval: ${blank}
 Measure of relationship change: ${blank}
 
 Instructor review: REQUIRED BEFORE TREATING AS A COMPLETED PRODUCT`;
@@ -212,12 +212,12 @@ Desired effect and supporting objective: ${blank}
 Leader's capability, influence, agenda, motivations, interests, and network: ${blank}
 Previous engagements and agreements reviewed: ${blank}
 Cultural, protocol, interpreter, and communication considerations: ${blank}
-Questions, contingencies, and acceptable commitments planned: ${blank}
+Questions, contingencies, authorized talking points, and matters requiring coordination or approval: ${blank}
 
 3. ENGAGEMENT
 Items of discussion and who raised each topic: ${blank}
 Key statements, observations, and nonverbal indicators: ${blank}
-Commitments and agreements by each party: ${blank}
+Requests, stated intentions, or reported agreements by each party (do not promise assistance or outcomes): ${blank}
 Contact method established for continued communication: ${blank}
 
 4. POST-ENGAGEMENT ASSESSMENT
@@ -286,7 +286,7 @@ Associates and relationship links: ${blank}
 Long-term influence: YES / NO / UNKNOWN - ${blank}
 Access: YES / NO / UNKNOWN - ${blank}
 Relevance: YES / NO / UNKNOWN - ${blank}
-Agreements and commitments: ${blank}
+Reported agreements, requests, or stated intentions (identify source and authority; do not imply a U.S. commitment): ${blank}
 Previous engagements / notes: ${blank}
 Recommended engagement approach and next action: ${blank}
 

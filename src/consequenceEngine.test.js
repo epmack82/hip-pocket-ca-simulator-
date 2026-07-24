@@ -59,6 +59,35 @@ test('active serious consequences never allow automatic positive rapport', () =>
   expect(applied.result.relationshipShifts['Municipal official']).toBe(0);
 });
 
+test('a promise to provide a school window creates persistent command and relationship consequences', () => {
+  const prompt = `TRAINEE'S ACTION: "I promise the school that our team will replace the broken window."\n\nEvaluate this action`;
+  const base = {
+    qualityScore: 70,
+    relationshipShifts: { 'School director': 4 },
+    narrativeOutcome: 'The school appreciates the offer.'
+  };
+  const applied = applyConsequenceRules(base, prompt, scenario, []);
+
+  expect(applied.detected.title).toBe('Unauthorized promise or commitment');
+  expect(applied.result.qualityScore).toBe(0);
+  expect(applied.result.relationshipShifts['School director']).toBeLessThan(0);
+  expect(applied.result.relationshipShifts['SSG Davis (CMOC)']).toBeLessThan(0);
+  expect(applied.result.narrativeOutcome).toContain('firm commitment of U.S. support');
+  expect(applied.result.narrativeOutcome).toContain('Personal payment');
+  expect(applied.result.progress.informationGaps).toContain('Actual authority, funding, and delivery capability');
+  expect(applied.consequences[0].persistentEffects.join(' ')).toContain('Failure to deliver can damage trust');
+});
+
+test('material-support promises are caught without penalizing transparent limitations or routine reporting', () => {
+  const promised = detectMisconduct(`TRAINEE'S ACTION: "We'll provide construction materials and supplies next week."\n\nEvaluate this action`, scenario);
+  const transparent = detectMisconduct(`TRAINEE'S ACTION: "I explain that I cannot promise assistance, document the request, and coordinate it through authorized channels."\n\nEvaluate this action`, scenario);
+  const reporting = detectMisconduct(`TRAINEE'S ACTION: "I will provide an update to CMOC after validating the school report."\n\nEvaluate this action`, scenario);
+
+  expect(promised?.title).toBe('Unauthorized promise or commitment');
+  expect(transparent).toBeNull();
+  expect(reporting).toBeNull();
+});
+
 test('accountability can begin mitigation without erasing the consequence', () => {
   const prior = [detectMisconduct(`TRAINEE'S ACTION: "I set fire to a vehicle."\n\nEvaluate this action`, scenario)];
   const prompt = `TRAINEE'S ACTION: "I notify the chain of command, accept responsibility, correct the record, and cooperate with the investigation."\n\nEvaluate this action`;
