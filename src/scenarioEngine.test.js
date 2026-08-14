@@ -67,3 +67,15 @@ test('school scenes begin with school-relevant stakeholders and a grounded scene
   expect(schoolStakeholders).toContain(school.keyStakeholders[1]);
   expect(school.narrative).toContain('classroom');
 });
+
+test('interpreter injects are occasional and always visibly cued in the opening narrative', () => {
+  const scenarios = Array.from({ length: 600 }, (_, index) => generateScenario(`HIP-INTERPRETER-${index}`));
+  const interpreterScenarios = scenarios.filter(scenario => scenario.interpreterInject);
+  const rate = interpreterScenarios.length / scenarios.length;
+
+  expect(rate).toBeGreaterThan(0.05);
+  expect(rate).toBeLessThan(0.16);
+  interpreterScenarios.forEach(scenario => {
+    expect(scenario.narrative).toContain(scenario.interpreterInject.cue);
+  });
+});

@@ -49,7 +49,9 @@ const DATA = {
     ['competing organizations duplicating effort', 'Another organization announces a conflicting plan without consulting local officials.'],
     ['deep host-nation distrust of outside assistance', "A stakeholder challenges the team's motives in front of the group."],
     ['unequal access for a vulnerable population', 'The team learns that one group cannot safely reach the service site.'],
-    ['outdated and incomplete civil data', 'The official population estimate is contradicted by recent movement reports.']
+    ['outdated and incomplete civil data', 'The official population estimate is contradicted by recent movement reports.'],
+    ['uncertain interpreter accuracy', 'The interpreter gives a brief answer after a much longer exchange, and a stakeholder reacts as though the team expressed frustration.'],
+    ['force-protection information request', 'The interpreter quietly reports repeated messages asking for the team’s whereabouts, next meeting, route, and names of local contacts.']
   ]
 };
 
@@ -167,6 +169,21 @@ export function generateScenario(seed, { day = 1, duration = 3, role = 'sgt' } =
   const supplementalStakeholders = sample(DATA.stakeholders.filter(name => !localStakeholders.includes(name)), 1, rng);
   const stakeholders = [...localStakeholders, ...supplementalStakeholders].slice(0, Math.min(2 + difficulty, 5));
   const complications = sample(DATA.complications, Math.min(1 + Math.floor(difficulty / 2), 3), rng);
+  let primaryInterpreterComplication =
+    complications[0][0] === 'uncertain interpreter accuracy' || complications[0][0] === 'force-protection information request';
+  // Interpreter injects are occasional awareness events, not a recurring trap.
+  // They activate only when the opening narrative visibly presents the cue.
+  if (primaryInterpreterComplication && rng() >= 0.6) {
+    const selectedLabels = new Set(complications.map(item => item[0]));
+    const ordinaryComplications = DATA.complications.filter(item =>
+      item[0] !== 'uncertain interpreter accuracy' &&
+      item[0] !== 'force-protection information request' &&
+      !selectedLabels.has(item[0])
+    );
+    complications[0] = pick(ordinaryComplications, rng);
+    primaryInterpreterComplication = false;
+  }
+  const interpreterComplication = primaryInterpreterComplication ? complications[0] : null;
   const complexityMultiplier = 1 + (day / duration) * 0.4;
   const standard = `Assess the ${site[1]} using ASCOPE and PMESII-PT; distinguish facts, assumptions, and information gaps; validate reporting with more than one source; document civil vulnerabilities, local capabilities, and recommended follow-on actions.`;
   const opening = `${siteContext.opening} ${siteContext.welcome}\n\n“${siteContext.line}” Nearby, the ${stakeholders[1]} ${siteContext.secondReason}. ${complications[0][1]}`;
@@ -192,13 +209,28 @@ export function generateScenario(seed, { day = 1, duration = 3, role = 'sgt' } =
       originLocation: site[1],
       returnPrompt: `The information from the ${relatedSite[1]} changes how the team understands conditions at the ${site[1]}. You will need to decide what is confirmed, what remains only a claim, and whether the original stakeholders should be re-engaged.`
     },
-    suggestedProducts: [`${site[1]} Site Assessment`, 'Post-KLE Report', 'Daily SITREP', 'CA Operations Report (CAOPREP)', 'Link Diagram', 'Stakeholder Baseball Card', 'ASCOPE Worksheet', 'PMESII-PT Worksheet'],
+    suggestedProducts: [`${site[1]} Site Assessment`, 'Post-KLE Report', 'Daily SITREP', 'CA Operations Report (CAOPREP)', 'Link Diagram', 'Stakeholder Baseball Card', 'ASCOPE Worksheet', 'PMESII-PT Worksheet', 'Inspector General Action Request (DA Form 1559)'],
     referenceStandards: {
       planned: `PLANNED ASSESSMENT: ${standard} Produce a comprehensive assessment and coordination recommendation.`,
       deliberate: `DELIBERATE ASSESSMENT: ${standard} Record the most significant limitations and route them appropriately.`,
       initial: `INITIAL ASSESSMENT: Establish a reliable baseline, identify urgent concerns, and define requirements for follow-on collection.`
     },
     injects: complications.map((item, index) => ({ id: `${normalized}-${index + 1}`, text: item[1] })),
+    interpreterInject: interpreterComplication
+      ? interpreterComplication[0] === 'uncertain interpreter accuracy'
+        ? {
+            type: 'accuracy',
+            status: 'unresolved',
+            cue: interpreterComplication[1],
+            learningObjective: 'Recognize possible meaning loss without assuming deception; use respectful confirmation, short phrasing, back-translation, observation, and independent validation.'
+          }
+        : {
+            type: 'force-protection',
+            status: 'unresolved',
+            cue: interpreterComplication[1],
+            learningObjective: 'Protect need-to-know information, avoid accusatory conclusions, document the request, and elevate the concern through the appropriate force-protection or command channel.'
+          }
+      : null,
     day,
     complexityMultiplier,
     difficultyContext: day === 1 ? 'Introduction' : day === duration ? 'Final Assessment' : 'Ongoing',

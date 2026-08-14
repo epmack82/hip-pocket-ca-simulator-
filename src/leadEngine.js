@@ -1,4 +1,4 @@
-const discoveryPattern = /depend|connection|connected|relationship|network|supplier|support|fund|responsib|authority|upstream|downstream|who else|where (?:it|they|this)|root cause|source of|follow[- ]?on|referr/i;
+const discoveryPattern = /depend|connection|connected|relationship|network|supplier|support|fund|responsib|authority|upstream|downstream|who else|where (?:it|they|this)|root cause|source of|follow[- ]?on|referr|\bleads?\b|other (?:people|places|organizations)|who (?:should|could) (?:we|i) (?:meet|speak|talk)/i;
 
 export function discoverLead(actionText, scenario = {}) {
   if (!scenario.lead || !discoveryPattern.test(actionText || '')) return null;
