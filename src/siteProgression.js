@@ -67,10 +67,35 @@ export function advanceSiteState(previous, result = {}, summaryLabel, scenario =
 
 export function siteStatusSummary(state, scenario = {}) {
   if (!state?.actions?.length) return scenario.narrative || '';
-  const remaining = state.informationGaps.length
-    ? `There are still ${state.informationGaps.length} identified information gap${state.informationGaps.length === 1 ? '' : 's'} to address.`
-    : 'No explicit information gaps are currently recorded, though conclusions should still be validated.';
-  return `${state.lastUpdate} ${remaining}`.trim();
+  const discoveries = state.discoveries?.length || 0;
+  const products = state.completedProducts?.length || 0;
+  const openLeads = (state.leads || []).filter(lead => lead.status !== 'completed').length;
+  const gaps = state.informationGaps?.length || 0;
+  const scored = DIMENSIONS
+    .map(([key, label]) => ({ label, score: Number(state.dimensionScores?.[key]) || 0 }))
+    .filter(item => item.score > 0)
+    .sort((a, b) => b.score - a.score);
+  const strongest = scored[0];
+  const weakest = scored.length > 1 ? scored[scored.length - 1] : null;
+  const fieldWork = `${state.actions.length} field action${state.actions.length === 1 ? '' : 's'} completed at ${scenario.location || 'this location'}; ${discoveries} finding${discoveries === 1 ? '' : 's'} recorded${products ? ` and ${products} product${products === 1 ? '' : 's'} completed` : ''}.`;
+  const collection = gaps
+    ? `Collection remains incomplete: ${gaps} information gap${gaps === 1 ? '' : 's'} and ${openLeads} open lead${openLeads === 1 ? '' : 's'} require a decision.`
+    : `No explicit information gaps remain${openLeads ? `, though ${openLeads} developed lead${openLeads === 1 ? '' : 's'} remains open` : ''}.`;
+  const commandView = strongest
+    ? `Command view: strongest demonstrated area is ${strongest.label.toLowerCase()} (${strongest.score})${weakest && weakest.label !== strongest.label ? `; the clearest development need is ${weakest.label.toLowerCase()} (${weakest.score})` : ''}.`
+    : 'Command view: insufficient observed activity for a meaningful performance trend.';
+  return `${fieldWork} ${collection} ${commandView}`;
+}
+
+export function buildValidationBrief(state = {}) {
+  const discoveries = state.discoveries || [];
+  const claimIndicators = /\b(?:says|claim|account|report|identif|indicat|disput|alleg|believ|according)\b/i;
+  const claims = discoveries.filter(item => claimIndicators.test(item));
+  return {
+    claims: claims.length ? claims : discoveries.slice(-1),
+    gaps: state.informationGaps || [],
+    leads: (state.leads || []).filter(lead => lead.status !== 'completed')
+  };
 }
 
 export function followLead(state, leadId) {

@@ -29,3 +29,51 @@ test('an introduction first creates room for later assessment', () => {
 test('current continuity returns the adapted scene instead of a generic progress phrase', () => {
   expect(currentContinuityNarrative({ continuityNarrative: 'The director returns to class.' }, scenario)).toBe('The director returns to class.');
 });
+
+test('later continuity names the latest action and its cumulative action number', () => {
+  const adjusted = applyActionOrderRules(
+    { qualityScore: 40, relationshipShifts: {}, narrativeOutcome: 'No usable information gained.' },
+    { actions: ['one', 'two', 'three'], discoveries: [] },
+    'Action: "I wait behind the building."',
+    scenario
+  );
+
+  expect(adjusted.continuityNarrative).toContain('wait behind the building');
+  expect(adjusted.continuityNarrative).toContain('action 4');
+  expect(adjusted.continuityNarrative).not.toContain("reacts to the team's latest decision");
+});
+
+test('stakeholder titles are capitalized at the beginning of continuity scenes', () => {
+  const adjusted = applyActionOrderRules(
+    { qualityScore: 40, relationshipShifts: {}, narrativeOutcome: 'No usable information gained.' },
+    { actions: ['one'], discoveries: [] },
+    'Action: "I wait outside."',
+    { narrative: 'Initial arrival.', keyStakeholders: ['clinic director'] }
+  );
+
+  expect(adjusted.continuityNarrative.startsWith('Clinic director')).toBe(true);
+});
+
+test('first rapport scene reflects interpreter use, gift protocol, and the observing secondary stakeholder', () => {
+  const adjusted = applyActionOrderRules(
+    { qualityScore: 76, relationshipShifts: { 'Municipal administrator': 4, 'Public works director': 0 }, narrativeOutcome: 'Opening.' },
+    { actions: [] },
+    'Action: "I provide warm introductions, involve our interpreter, sincerely thank the host, and offer a small gift."',
+    { location: 'municipal office', keyStakeholders: ['municipal administrator', 'public works director'] }
+  );
+
+  expect(adjusted.continuityNarrative).toContain('interpreter');
+  expect(adjusted.continuityNarrative).toContain('protocol');
+  expect(adjusted.continuityNarrative).toContain('public works director');
+});
+
+test('continuity follows a specifically addressed secondary stakeholder with a minor misspelling', () => {
+  const adjusted = applyActionOrderRules(
+    { qualityScore: 70, relationshipShifts: { 'utility operations manager': 0, 'municipal engineer': 4 }, narrativeOutcome: 'The engineer joins.' },
+    { actions: ['opening'], discoveries: [] },
+    'Action: "I apologize to the municipile engineer, invite them to join, and ask their perspective."',
+    { location: 'water facility', keyStakeholders: ['utility operations manager', 'municipal engineer'] }
+  );
+
+  expect(adjusted.continuityNarrative.startsWith('Municipal engineer')).toBe(true);
+});
