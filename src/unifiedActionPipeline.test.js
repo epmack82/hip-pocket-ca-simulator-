@@ -14,10 +14,11 @@ test('creates one traceable update when products are claimed without attachments
 });
 
 test('does not invent a consequence when no policy has evidence', () => {
-  const turn = processUnifiedAction({ scenarioId: 'school', rawText: 'I introduce the team.' });
+  const turn = processUnifiedAction({ scenarioId: 'school', rawText: 'I contemplate the purple widget.' });
   expect(turn.ok).toBe(true);
-  expect(turn.worldUpdate.classification).toBe('no-rule-triggered');
-  expect(turn.worldUpdate.effects).toEqual([]);
+  expect(turn.worldUpdate.classification).toBe('unresolved-action');
+  expect(turn.worldUpdate.effects.join(' ')).toContain('unresolved');
+  expect(turn.worldUpdate.scoreChanges).toEqual([]);
 });
 
 test('serious misconduct suppresses incompatible positive rapport credit', () => {

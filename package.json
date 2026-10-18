@@ -1,6 +1,6 @@
 {
   "name": "hippocket-ca-simulator",
-  "version": "4.3.0",
+  "version": "4.4.0",
   "description": "Hip Pocket - Civil Affairs HADR Training Simulator",
   "private": true,
   "dependencies": {
@@ -13,9 +13,11 @@
   },
   "scripts": {
     "start": "react-scripts start",
+    "preview": "node scripts/preview.cjs",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "test:ci": "react-scripts test --watchAll=false --runInBand"
   },
   "eslintConfig": {
     "extends": [
@@ -35,6 +37,9 @@
     ]
   },
   "devDependencies": {
-    "react-scripts": "5.0.1"
-  }
+    "react-scripts": "5.0.1",
+    "eslint-config-react-app": "7.0.1",
+    "eslint": "8.57.1"
+  },
+  "packageManager": "pnpm@11.25.0"
 }

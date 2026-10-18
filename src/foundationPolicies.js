@@ -1,137 +1,186 @@
-const stakeholder = record => record.context.stakeholders[0] || 'Local stakeholder';
-const evidence = record => record.rawText;
-const actionIds = record => record.understanding.actions.map(action => action.id);
+import { knowledgeFor, sentenceCase } from './sceneKnowledge';
 
-function finding(record, values) {
-  return [{
-    id: values.id,
-    severity: values.severity,
-    evidence: evidence(record),
-    rejectedActs: values.rejected ? actionIds(record) : [],
-    effects: values.effects || [],
-    relationshipChanges: values.relationshipDelta ? [{
-      participant: stakeholder(record),
-      delta: values.relationshipDelta,
-      reasonCode: values.id,
-      evidence: evidence(record)
-    }] : [],
-    scoreChanges: (values.scoreChanges || []).map(change => ({ ...change, reasonCode: values.id, evidence: evidence(record) })),
-    persistentConditions: values.persistentConditions || [],
-    coaching: values.coaching || []
-  }];
+const has = (act, kind) => (act.kinds || []).includes(kind);
+const any = (record, kind) => record.understanding.actions.some(act => has(act, kind));
+const primary = record => record.context.stakeholders[0] || 'Local stakeholder';
+const evidence = act => act.description;
+const dimensions = (act, id, entries) => Object.entries(entries).map(([dimension, delta]) => ({ dimension, delta, reasonCode: id, evidence: evidence(act) }));
+
+function incident(record, act, world, id, severity, effect, coaching, options = {}) {
+  const target = act.target || primary(record);
+  const repeat = (world.persistentConditions || []).filter(c => c.ruleId === id).length;
+  const delta = -(severity === 'critical' ? 30 : severity === 'serious' ? 12 : 5) - Math.min(10, repeat * 3);
+  return {
+    id, severity, evidence: evidence(act), rejectedActs: [act.id],
+    effects: [effect],
+    relationshipChanges: [{ participant: target, delta, reasonCode: id, evidence: evidence(act) }],
+    scoreChanges: dimensions(act, id, { professionalism: delta * 2, missionFocus: delta, rapport: delta, ...(options.scores || {}) }),
+    persistentConditions: [{
+      id: record.id + '-' + id + '-' + act.id, ruleId: id, sourceAction: record.id, sourceScenario: record.scenarioId,
+      title: options.title || id.replace(/-/g, ' '), severity, status: 'active', occurrenceCount: 1,
+      categories: [id], persistentEffects: [effect], evidence: evidence(act)
+    }],
+    teamReactions: [severity === 'critical'
+      ? 'The team sergeant stops normal mission activity, accounts for the team, and notifies command. The incident now takes priority over collection.'
+      : repeat ? 'A teammate points out that this has happened before. The team chief takes direct control of the engagement; the rest of the team loses time to managing the aftermath.'
+      : 'The team sergeant steps into the exchange. A second teammate gathers the notebook and stays with the host while the interruption is addressed.'],
+    coaching: [coaching], ...options
+  };
 }
 
-export function seriousMisconductPolicy(record) {
-  const text = record.rawText.toLowerCase();
-  const destruction = /\b(?:burn|burned|burnt|set\s+(?:fire|ablaze)|torch|destroy|demolish|blow\s+up|explosive|c4|grenade)\b/.test(text);
-  const violence = /\b(?:assault|attack|beat|shoot|stab|kill|murder|strike|tomahawk|weapon|open\s+fire)\b/.test(text);
-  if (!destruction && !violence) return [];
-  return finding(record, {
-    id: destruction ? 'destruction-or-arson' : 'violence-or-weapon-use', severity: 'critical', rejected: true,
-    effects: ['The engagement stops immediately. Local authorities secure the area while the chain of command initiates an incident response and removes the team from normal mission activity.'],
-    relationshipDelta: -30,
-    scoreChanges: [{ dimension: 'professionalism', delta: -40 }, { dimension: 'missionFocus', delta: -40 }],
-    persistentConditions: [{ id: 'command-investigation', status: 'active', sourceAction: record.id }],
-    coaching: ['This is not treated as colorful improvisation. It creates safety, legal, diplomatic, and mission-command consequences that persist beyond the turn.']
-  });
+export function conductPolicy(record, world = {}) {
+  if (record.kind !== 'action' && record.kind !== 'lead') return [];
+  const findings = [];
+  const site = world.sites?.[record.scenarioId] || {};
+  for (const act of record.understanding.actions) {
+    const who = sentenceCase(act.target || primary(record));
+    if (has(act, 'destruction')) findings.push(incident(record, act, world, 'destruction-or-arson', 'critical',
+      'The destructive act damages the site and stops its normal use. ' + who + ' calls for assistance; people withdraw from the area. The loss of service and the team’s responsibility remain part of the mission record.',
+      'Address immediate safety, report what happened accurately, and account for the effects on people and essential services. Later good work cannot erase this incident.', { title: 'Destructive conduct' }));
+    else if (has(act, 'violence')) findings.push(incident(record, act, world, 'violence-or-weapon-use', 'critical',
+      who + ' breaks off the engagement as the weapon or assault turns the visit into a security incident. Local personnel secure the area and command removes the team from normal duties.',
+      'Account for safety and report the incident accurately. The exercise proceeds to an AAR with the harm and loss of access recorded.', { title: 'Violent conduct' }));
+    if (has(act, 'intoxication')) findings.push(incident(record, act, world, 'duty-impairment', 'serious',
+      who + ' ends the substantive discussion when the team’s attention shifts to intoxication. An assigned meeting is missed while another teammate arranges accountability and reports the interruption.',
+      'Recognize the effect on duty performance, interpreter trust, host access, and teammates who must cover the work.', { title: 'Duty impairment' }));
+    if (has(act, 'substance-offer')) findings.push(incident(record, act, world, 'substance-distribution', 'serious',
+      who + ' declines the offered substance and sets it aside. The conversation stops; a teammate has to explain the incident and arrange a professional follow-up.',
+      'An unsolicited offer of intoxicants or medication in this engagement is not credited as relationship building.', { title: 'Inappropriate substance offer' }));
+    if (has(act, 'abandonment')) findings.push(incident(record, act, world, 'mission-abandonment', 'serious',
+      'The host is left waiting while the team departs from its assigned work. The remaining teammates cover the missed engagement and report the loss of contact to command.',
+      'Own the missed task, coordinate your return through team leadership, and document what other team members had to cover.', { title: 'Mission abandonment' }));
+    if (has(act, 'harassment') || has(act, 'coercion')) findings.push(incident(record, act, world, has(act, 'harassment') ? 'harassment-or-discrimination' : 'coercive-engagement', 'serious',
+      who + ' withdraws cooperation after the pressure or degrading treatment. A teammate separates the parties and records the affected person’s concern without forcing them to continue the meeting.',
+      'Respect autonomy and equal treatment. Acknowledge the specific conduct and use the appropriate team and support channels.', { title: 'Coercion or mistreatment' }));
+    if (has(act, 'unsafe-equipment') && !has(act, 'destruction') && !act.request) findings.push(incident(record, act, world, 'unsafe-facility-interference', 'serious',
+      'The interference with operational equipment interrupts the visit. Facility staff move the team away from the controls and check for damage; ' + who + ' restricts the team to the public area.',
+      'Permission to visit is not technical authorization to operate or manipulate equipment. Coordinate qualified inspection.', { title: 'Unsafe equipment interference' }));
+    const permitted = act.permission === 'stated' || (site.permissions || []).includes('supervised-contact');
+    const schoolPerformance = has(act, 'performance') && /school|classroom/.test(record.context.siteType + ' ' + record.context.location + ' ' + act.description);
+    if ((has(act, 'contact') || schoolPerformance) && !act.request && !act.conditional && !permitted) findings.push(incident(record, act, world, 'protected-contact-without-permission', 'serious',
+      'As the uncoordinated activity begins, the responsible staff member gathers the group back under supervision. ' + who + ' asks why the official engagement was bypassed. A teammate has to restore contact with the host while the activity ends.',
+      'For this exercise, coordinate the purpose, appropriate consent, supervision, and access before contact with children or other vulnerable people. The attempted contact and interrupted meeting remain recorded.', { title: 'Uncoordinated protected-population contact' }));
+    if (has(act, 'interpreter-exclusion')) findings.push(incident(record, act, world, 'interpreter-deliberately-excluded', 'concern',
+      'The interpreter stays outside as instructed. Inside, ' + who + ' pauses when the team tries to continue privately: “How will we make sure we understand each other?” Tea is served, but no translated discussion or new information is credited.',
+      'Establish a shared language or an approved alternative before continuing. Explain confidentiality boundaries respectfully; excluding the interpreter does not make them an unseen translator.', { title: 'Interpreter excluded', interpreterStatus: 'excluded', scores: { coordination: -12 } }));
+    else if (has(act, 'interpreter-substitution')) findings.push(incident(record, act, world, 'interpreter-substituted-for-soldier', 'concern',
+      'The interpreter receives the instruction, then looks back toward the departing Soldier. ' + who + ' asks who is responsible for the meeting. A teammate steps in to keep the host engaged while Soldier leadership is restored.',
+      'The interpreter facilitates language and meaning. The team retains ownership of introductions, decisions, and follow-through.', { title: 'Engagement delegated to interpreter', scores: { coordination: -12 } }));
+    if (has(act, 'promise')) findings.push(incident(record, act, world, 'unauthorized-commitment', 'serious',
+      who + ' repeats the promised support to the people nearby and asks when it will arrive. The team now has to correct an expectation it has not established authority or resources to meet.',
+      'Record the need, explain your limits, and coordinate a possible response without guaranteeing support or an outcome.', { title: 'Unauthorized commitment' }));
+    if (has(act, 'social-event') && !has(act, 'intoxication') && act.permission !== 'stated') findings.push(incident(record, act, world, 'uncoordinated-social-event', 'concern',
+      who + ' asks who approved the event, who is included, and who pays. Staff stop their work to discuss the proposal; the assessment loses time and the event does not proceed as an approved mission activity.',
+      'Account for purpose, authority, cost, inclusion, and local expectations before committing staff to an event.', { title: 'Uncoordinated event' }));
+  }
+  return findings;
 }
 
-export function intoxicationAndDrugPolicy(record) {
-  const text = record.rawText.toLowerCase();
-  const intoxication = /\b(?:get|got|become|became|arrive|arrived|show\s+up|showed\s+up)\s+(?:very\s+)?(?:drunk|hammered|wasted|intoxicated)|\bbender\b|\blight(?:ing)?\s+(?:up\s+)?(?:a\s+)?(?:joint|blunt)|\bsmok(?:e|ing)\s+(?:a\s+)?(?:joint|weed|marijuana)|\buse\s+(?:cocaine|meth|drugs)\b/.test(text);
-  const distribution = /\b(?:offer|give|hand|pass|distribute|provide|bring)\w*\b.{0,55}\b(?:booze|alcohol|vodka|moonshine|drugs|prescription|pills)\b/.test(text);
-  if (!intoxication && !distribution) return [];
-  return finding(record, {
-    id: distribution ? 'substance-distribution' : 'duty-impairment', severity: 'serious', rejected: true,
-    effects: ['The stakeholder ends the substantive discussion and the team leadership intervenes. The incident is documented and follow-on access is restricted pending command review.'],
-    relationshipDelta: -15,
-    scoreChanges: [{ dimension: 'professionalism', delta: -25 }, { dimension: 'rapport', delta: -15 }],
-    persistentConditions: [{ id: 'impaired-duty-incident', status: 'active', sourceAction: record.id }],
-    coaching: ['Alcohol or drug misuse during an engagement is a readiness and discipline issue, not rapport building. Repeated misconduct escalates rather than resetting.']
-  });
+function credit(record, act, id, effect, scores, extra = {}) {
+  return {
+    id, severity: 'none', evidence: evidence(act), acceptedActs: [act.id], effects: [effect],
+    creditKey: record.scenarioId + ':' + id + ':' + act.target,
+    scoreChanges: dimensions(act, id, scores),
+    relationshipChanges: [], ...extra
+  };
 }
 
-export function interpreterControlPolicy(record) {
-  const text = record.rawText.toLowerCase();
-  const excluded = /\b(?:leave|left|keep|kept|send|sent)\b.{0,40}\b(?:interpreter|translator)\b.{0,45}\b(?:outside|behind|away|out|alone)|\bwithout\s+(?:the|my|our)\s+(?:interpreter|translator)\b/.test(text);
-  const substituted = /\b(?:tell|ask|have|make|send)\b.{0,30}\b(?:interpreter|translator)\b.{0,60}\b(?:lead|conduct|handle|do|give)\b.{0,30}\b(?:meeting|kle|engagement|introduction|introductions)\b/.test(text);
-  if (!excluded && !substituted) return [];
-  return finding(record, {
-    id: excluded ? 'interpreter-deliberately-excluded' : 'interpreter-substituted-for-soldier', severity: 'concern', rejected: true,
-    effects: [excluded
-      ? 'The private conversation cannot proceed as intended because shared meaning and an accountable record of the exchange are no longer reliable.'
-      : 'The interpreter pauses rather than assuming responsibility for the Soldier-led engagement. Team leadership redirects the Soldier to personally establish purpose and ownership.'],
-    relationshipDelta: -5,
-    scoreChanges: [{ dimension: 'coordination', delta: -12 }, { dimension: 'rapport', delta: -5 }],
-    coaching: ['The interpreter facilitates language and cultural meaning. The Soldier remains responsible for the engagement, observes reactions, verifies meaning, and protects sensitive information appropriately.']
-  });
+export function engagementPolicy(record, world = {}) {
+  if (record.kind !== 'action' && record.kind !== 'lead') return [];
+  const site = world.sites?.[record.scenarioId] || {};
+  const knowledge = knowledgeFor(record.context);
+  const findings = [];
+  let hasClaim = Boolean(site.claims?.length);
+  const engaged = new Set(site.engagedParticipants || []);
+  let observationPermission = (site.permissions || []).includes('escorted-observation');
+  const unavailable = any(record, 'interpreter-exclusion') || world.interpreterStatus === 'excluded';
+  for (const act of record.understanding.actions) {
+    const who = sentenceCase(act.target || primary(record));
+    let introduced = engaged.has(act.target || primary(record));
+    const speaker = act.target || primary(record);
+    if (act.negated || act.hypothetical || act.actor !== 'trainee') continue;
+    if (has(act, 'accountability')) {
+      const active = (world.persistentConditions || []).filter(c => c.status === 'active');
+      const reported = any(record, 'coordination') && /\b(?:command|team leader|team chief|cmoc|chain of command)\b/i.test(record.rawText);
+      findings.push(credit(record, act, active.length ? 'accountability' : 'courtesy-apology',
+        who + (active.length ? ' hears the acknowledgment. “I appreciate that you addressed it. We still need to deal with what happened.”' : ' accepts the apology and makes room in the conversation.'),
+        active.length && reported ? { coordination: 10 } : {},
+        { conditionChanges: reported ? active.filter(c => c.severity !== 'critical').map(c => ({ id: c.id, status: 'mitigating' })) : [],
+          coaching: active.length ? ['Acknowledgment and reporting begin mitigation. Restrictions and the recorded consequence remain; this is not a reset.'] : [] }));
+    }
+    if (has(act, 'invitation') || has(act, 'introduction')) {
+      const repeated = (site.engagedParticipants || []).includes(speaker);
+      const intro = repeated ? ' returns the greeting and refers back to the earlier discussion.' : ' turns toward the team and joins the exchange. “Thank you for including me. What would you like to understand about our work?”';
+      const translation = any(record, 'interpreter-support') && !unavailable && !any(record, 'interpreter-substitution')
+        ? ' The interpreter translates the introduction in short sections while you remain responsible for the exchange.' : '';
+      findings.push(credit(record, act, 'constructive-engagement-opening', who + intro + translation, { rapport: 35, professionalism: 30, missionFocus: 15 },
+        { engagedParticipants: [speaker], relationshipChanges: [{ participant: speaker, delta: 4, reasonCode: 'constructive-engagement-opening', evidence: evidence(act) }] }));
+      introduced = true;
+      engaged.add(speaker);
+    }
+    if (has(act, 'gift')) findings.push(credit(record, act, 'gift-protocol',
+      who + ' pauses over the offered gift. “Please explain what this represents.” The gesture is acknowledged, but acceptance is left open while local and official expectations are checked.',
+      {}, { coaching: ['The value of a gift does not earn points. Explain intent and check applicable protocol; do not assume acceptance.'] }));
+    if (has(act, 'permission-request')) {
+      const contact = has(act, 'contact') || act.protectedPopulation !== 'none';
+      const observationRequested = !contact && /\b(?:inspect|observe|observation|walk|tour|visit)\b/.test(act.description);
+      if (observationRequested) observationPermission = true;
+      findings.push(credit(record, act, 'permission-request', who + ' considers the request. ' + (contact
+        ? '“Let us agree on the purpose and speak with the responsible staff and participants first.” No contact has occurred and consent has not yet been granted.'
+        : observationRequested ? knowledge.permission : '“Please continue with the purpose of your visit.” This permits conversation, not entry into restricted spaces or contact with protected groups.'),
+      { professionalism: 25, coordination: 15 },
+      { permissions: observationRequested ? ['escorted-observation'] : [] }));
+    }
+    if (has(act, 'contact') && !act.request && !act.conditional && (act.permission === 'stated' || (site.permissions || []).includes('supervised-contact'))) {
+      findings.push(credit(record, act, 'supervised-contact', 'With the stated permission and supervision, the activity takes place within the agreed boundaries. ' + who + ' remains present and brings the group back to the engagement afterward.',
+        { professionalism: 15, rapport: 15 }, { permissions: ['supervised-contact'] }));
+    }
+    if (has(act, 'inquiry') && !has(act, 'permission-request') && !has(act, 'interpreter-substitution')) {
+      if (unavailable && !/\b(?:shared language|both speak|approved alternative)\b/i.test(record.rawText)) {
+        findings.push(credit(record, act, 'communication-unresolved', who + ' cannot complete a reliable exchange while the interpreter remains excluded. The question is recorded as unanswered.', {}, { coaching: ['Restore language support or establish an approved shared-language arrangement.'] }));
+      } else if (act.topic) {
+        const prior = (site.claims || []).find(c => c.source === speaker);
+        findings.push(credit(record, act, prior ? 'follow-up-inquiry' : 'focused-inquiry',
+          who + ' says, “' + (prior ? knowledge.reply : knowledge.claim) + '” ' + (introduced ? '' : 'The host first asks the team to explain its purpose. ') + 'This remains an attributed account, not a confirmed fact.',
+          introduced ? { informationCollection: prior ? 15 : 45, missionFocus: 20, rapport: 10 } : { informationCollection: 20 },
+          { discoveries: [{ id: knowledge.id + ':' + speaker, text: knowledge.claim, source: speaker, reliability: 'claim' }],
+            gaps: { opened: [knowledge.issue], advanced: [], resolved: [] },
+            leads: /\b(?:who else|source|depend|connect|lead|responsib|other)\w*\b/.test(act.description) && record.context.lead
+              ? { opened: [{ ...record.context.lead, status: 'open' }], changed: [] } : undefined }));
+        hasClaim = true;
+      } else findings.push(credit(record, act, 'open-question', who + ' gives you the floor. “Are you asking about current service, the people who cannot reach it, or the records we keep?” No specific claim has been collected yet.', {}));
+    }
+    if (has(act, 'observation') && !act.request && !act.conditional) {
+      const permission = act.permission === 'stated' || observationPermission;
+      findings.push(credit(record, act, permission ? 'site-observation' : 'public-observation',
+        permission ? knowledge.observation : 'From the public area, ' + knowledge.observation.replace(/^.{0,70}?, /, '') + ' The observation does not imply permission to enter restricted areas.',
+        { informationCollection: permission ? 25 : 10, initiative: 25 },
+        { discoveries: [{ id: knowledge.id + ':observation', text: knowledge.observation, source: 'Direct observation from permitted/public area', reliability: 'observation' }] }));
+    }
+    if (has(act, 'validation')) {
+      const canCompare = hasClaim && act.method && !act.request;
+      findings.push(credit(record, act, canCompare ? 'evidence-comparison' : 'validation-incomplete',
+        canCompare ? 'The team compares the attributed account with the available record. ' + knowledge.record
+          : who + (hasClaim ? ' asks which record, independent source, or observable condition you intend to compare. The existing claim stays unconfirmed.' : ' asks which claim you intend to test. A statement that validation occurred cannot supply the missing claim or evidence.'),
+        canCompare ? { validation: 60, informationCollection: 15, missionFocus: 15 } : {},
+        canCompare ? { discoveries: [{ id: knowledge.id + ':comparison', text: knowledge.record, source: 'Comparison with site record', reliability: 'partially-supported' }],
+          gaps: { opened: [], advanced: [knowledge.issue], resolved: [] } } : {}));
+    }
+    if (has(act, 'coordination') && /\b(?:cmoc|s-9|command|authority|team leader|team chief|clinic|director|office|channel|chief|ig|inspector general)\b/i.test(act.description) && !record.evidence.claimedProducts.length) findings.push(credit(record, act, 'coordination',
+      'The team records the issue and sends it through the stated coordination channel. ' + who + ' asks to be kept informed. Reporting the request does not establish that resources or assistance have been approved.',
+      { coordination: 40, missionFocus: 20 }, { coaching: ['Track the recipient, unresolved questions, and requested follow-up.'] }));
+    if (has(act, 'documentation') && !record.evidence.claimedProducts.length && !has(act, 'coordination')) findings.push(credit(record, act, 'field-notes',
+      'The team adds the action and its sources to the field notes. Unconfirmed accounts remain labeled as claims; these notes do not create a submitted worksheet.',
+      { initiative: 10 }));
+    if (has(act, 'interpreter-support') && !any(record, 'interpreter-exclusion') && !any(record, 'interpreter-substitution')) {
+      findings.push(credit(record, act, 'interpreter-support', 'The interpreter confirms the phrasing with you and remains available for the next exchange.',
+        { coordination: 15 }, { interpreterStatus: 'available' }));
+    }
+  }
+  return findings;
 }
 
-export function protectedPopulationPolicy(record) {
-  const text = record.rawText.toLowerCase();
-  const protectedPerson = /\b(?:child|children|kid|kids|minor|student|students|patient|patients|detainee|detainees|refugee|refugees|survivor|survivors|disabled|displaced)\b/.test(text);
-  const directContact = /\b(?:play|join|photograph|film|record|touch|hug|carry|give|hand|interview|question|take|escort|approach|talk|speak)\w*\b/.test(text);
-  const permission = /\b(?:permission|consent|approval|approved|authorized|teacher agreed|administrator agreed|parent agreed|guardian agreed|invited)\b/.test(text);
-  if (!protectedPerson || !directContact || permission) return [];
-  return finding(record, {
-    id: 'protected-contact-without-permission', severity: 'serious', rejected: true,
-    effects: ['A teammate intervenes before the uncoordinated contact proceeds. The responsible local authority retains supervision and asks the team to coordinate its purpose and safeguards first.'],
-    relationshipDelta: -8,
-    scoreChanges: [{ dimension: 'professionalism', delta: -18 }, { dimension: 'coordination', delta: -15 }],
-    coaching: ['Interaction with protected or vulnerable people requires mission relevance, permission from the responsible authority, appropriate supervision, and local safeguarding awareness.']
-  });
-}
-
-export function unsafeFacilityPolicy(record) {
-  const text = record.rawText.toLowerCase();
-  const manipulation = /\b(?:hit|smash|break|play(?:ing)?\s+with|touch|pull|cut|open|climb|enter)\b.{0,60}\b(?:wire|wires|electrical|light\s*bulb|tank|valve|machinery|equipment|controls?|panel|transformer|dam)\b|\b(?:wire|wires|electrical|tank|valve|machinery|equipment|controls?|panel|transformer)\b.{0,50}\b(?:hit|smash|break|play|touch|pull|cut|open|climb)\b/.test(text);
-  const authorized = /\b(?:authorized|permission|approved|escorted|operator directs|supervisor directs|lockout|tagout|qualified technician)\b/.test(text);
-  if (!manipulation || authorized) return [];
-  return finding(record, {
-    id: 'unsafe-facility-interference', severity: 'serious', rejected: true,
-    effects: ['Facility personnel stop the action and move the team away from operational equipment. The visit shifts from assessment to safety and access-control concerns.'],
-    relationshipDelta: -10,
-    scoreChanges: [{ dimension: 'professionalism', delta: -20 }, { dimension: 'missionFocus', delta: -15 }],
-    coaching: ['Observe, ask, document, and coordinate qualified inspection. Do not manipulate host-nation equipment without authority, technical qualification, and facility safety controls.']
-  });
-}
-
-export function improperPromisePolicy(record) {
-  const text = record.rawText.toLowerCase();
-  const promise = /\b(?:i|we|the team|the army|america|americans)\s+(?:promise|guarantee|will\s+(?:buy|build|bring|deliver|fix|fund|replace|provide|pay)|can\s+definitely)\b/.test(text);
-  if (!promise) return [];
-  return finding(record, {
-    id: 'unauthorized-commitment', severity: 'serious', rejected: true,
-    effects: ['The statement creates an expectation the team is not authorized or resourced to fulfill. The commitment is reported to command and must be corrected with the stakeholder before it hardens into a perceived obligation.'],
-    relationshipDelta: -8,
-    scoreChanges: [{ dimension: 'professionalism', delta: -18 }, { dimension: 'coordination', delta: -12 }],
-    persistentConditions: [{ id: 'unresolved-unauthorized-promise', status: 'active', sourceAction: record.id }],
-    coaching: ['Never promise assistance or support. Acknowledge the concern, collect requirements, explain limits, route the request, and follow up without creating a commitment.']
-  });
-}
-
-export function constructiveEngagementPolicy(record) {
-  const text = record.rawText.toLowerCase();
-  const introduction = /\b(?:introduce|introduction|greet|greeting|explain\s+(?:our|the)\s+(?:purpose|mission)|thank)\w*\b/.test(text);
-  const inquiry = /\b(?:ask|listen|concern|input|perspective|priority|need|question)\w*\b/.test(text);
-  const respect = /\b(?:respect|cultural|protocol|appropriate|permission|consent)\w*\b/.test(text);
-  if (!(introduction && (inquiry || respect))) return [];
-  return finding(record, {
-    id: 'constructive-engagement-opening', severity: 'none', rejected: false,
-    effects: ['The stakeholder understands why the team is present and remains engaged. The professional opening creates access for a focused question, but it does not by itself confirm any civil information.'],
-    relationshipDelta: 4,
-    scoreChanges: [{ dimension: 'rapport', delta: 8 }, { dimension: 'professionalism', delta: 5 }],
-    coaching: ['Use the access you earned to ask a mission-focused question, identify the source of the answer, and determine what would confirm or contradict it.']
-  });
-}
-
-export const FOUNDATION_POLICIES = [
-  seriousMisconductPolicy,
-  intoxicationAndDrugPolicy,
-  protectedPopulationPolicy,
-  unsafeFacilityPolicy,
-  interpreterControlPolicy,
-  improperPromisePolicy,
-  constructiveEngagementPolicy
-];
+// Kept as named exports for consumers of the initial foundation contract.
+export const seriousMisconductPolicy = conductPolicy;
+export const FOUNDATION_POLICIES = [conductPolicy, engagementPolicy];
 

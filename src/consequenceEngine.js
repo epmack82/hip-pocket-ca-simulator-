@@ -52,9 +52,9 @@ export function detectMisconduct(prompt = '', scenario = {}) {
   if (!matched.length) return null;
 
   const stakeholders = (scenario.keyStakeholders || []).slice(0, 2);
-  const abandonmentOnly = matched.every(rule => rule.id === 'mission-abandonment');
+  const abandonmentOnly = matched.some(rule => ['mission-abandonment', 'mission-abandonment-concept'].includes(rule.id)) && matched.every(rule => ['mission-abandonment', 'mission-abandonment-concept', 'intoxication-concept'].includes(rule.id));
   const promiseOnly = matched.every(rule => rule.id === 'unauthorized-promise');
-  const intoxicationOnly = matched.every(rule => ['funds-and-intoxication', 'intoxication-concept', 'unauthorized-alcohol-distribution'].includes(rule.id));
+  const intoxicationOnly = matched.every(rule => ['funds-and-intoxication', 'intoxication-concept', 'unauthorized-alcohol-distribution', 'unauthorized-social-event'].includes(rule.id));
   const criminalEnterpriseOnly = matched.every(rule => rule.id === 'corruption-or-coercion') &&
     /\b(?:gambling ring|illegal casino|criminal enterprise|drug trafficking operation)\b/i.test(action);
   const socialEventOnly = matched.every(rule => rule.id === 'unauthorized-social-event');

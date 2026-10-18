@@ -7,6 +7,7 @@ export function createActionRecord(input = {}) {
   const rawText = String(input.rawText || '').trim();
   const interpretation = input.interpretation || {};
   const actions = list(interpretation.actions).map((action, index) => ({
+    ...(typeof action === 'object' ? action : {}),
     id: `act-${index + 1}`,
     description: String(typeof action === 'string' ? action : action.description || ''),
     actor: typeof action === 'object' ? action.actor || 'trainee' : 'trainee',
@@ -21,6 +22,7 @@ export function createActionRecord(input = {}) {
     scenarioId: input.scenarioId || null,
     seed: input.seed || null,
     turnNumber: Number(input.turnNumber) || 1,
+    kind: input.kind || 'action',
     rawText,
     context: {
       location: input.location || null,
@@ -36,15 +38,16 @@ export function createActionRecord(input = {}) {
         id: 'act-1', description: rawText, actor: 'trainee', target: null, sequence: 1, confidence: 0
       }],
       participants: list(interpretation.participants),
-      permission: allowed(interpretation.permission, ['stated', 'missing', 'denied', 'unclear'], 'unclear'),
+      permission: allowed(interpretation.permission, ['stated', 'requested', 'missing', 'denied', 'unclear'], 'unclear'),
       protectedPopulation: interpretation.protectedPopulation || 'none',
       interpreterRole: interpretation.interpreterRole || 'not-mentioned',
       professionalRisk: allowed(interpretation.professionalRisk, ['none', 'low', 'moderate', 'high', 'critical'], 'unknown'),
       confidence: Number(interpretation.confidence) || 0,
-      source: interpretation.source || 'offline-fallback'
+      source: interpretation.source || 'offline-fallback',
+      ambiguities: list(interpretation.ambiguities)
     },
     evidence: {
-      claimedProducts: list(input.claimedProducts),
+      claimedProducts: list(input.claimedProducts || interpretation.claimedProducts),
       submittedProducts: list(input.submittedProducts),
       priorClaims: list(input.priorClaims),
       statedPermissions: list(input.statedPermissions),

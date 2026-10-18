@@ -1,3 +1,4 @@
+import { parseLocalAction } from './localActionParser';
 export function normalizeInterpretation(value = {}, source = 'semantic') {
   const list = item => Array.isArray(item) ? item.filter(Boolean).map(String) : [];
   const allowed = (item, values, fallback) => values.includes(item) ? item : fallback;
@@ -43,14 +44,7 @@ export function fallbackInterpretation(action = '', scenario = {}) {
   }, 'fallback');
 }
 
+// Compatibility entry point: gameplay is intentionally local. No service fallback.
 export async function understandAction(action, scenario = {}, history = []) {
-  try {
-    const response = await fetch('https://hip-pocket-api.onrender.com/api/interpret', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, scenario, history: history.slice(-6) }) });
-    const body = await response.json();
-    if (!response.ok || !body.interpretation) throw new Error(body.error || 'Semantic interpreter unavailable');
-    return normalizeInterpretation(body.interpretation, body.provider || 'semantic');
-  } catch (error) {
-    console.warn('Semantic interpretation unavailable; using conservative fallback.', error);
-    return fallbackInterpretation(action, scenario);
-  }
+  return parseLocalAction(action, scenario, { history });
 }

@@ -118,12 +118,13 @@ function actionAwareOutcome({ text, matched, stakeholderInquiry, validationMetho
   const excerpt = cleanActionExcerpt(text);
 
   if (matched.includes('rapport') && !(previousState.actions || []).length) {
-    const scene = rapportScene({ text, scenario, stakeholders, stakeholderInquiry });
+    const orderedStakeholders = [engaged?.name, ...stakeholders.filter(name => name !== engaged?.name)].filter(Boolean);
+    const scene = rapportScene({ text, scenario, stakeholders: orderedStakeholders, stakeholderInquiry });
     if (!stakeholderInquiry) return scene;
     const firstClaim = scenario.lead
       ? `${primary} explains that activity at the ${scenario.lead.label} may be affecting conditions here and identifies the ${scenario.lead.contact} as a possible second source.`
       : `${primary} describes a service-access concern and notes that the official account differs from what residents report.`;
-    return `${scene} ${firstClaim} The account is a lead, not a confirmed fact; the team must decide what source, record, or observation could test it.`;
+    return `${scene} ${firstClaim} The account is a single-source claim and a lead, not a confirmed fact; the team must decide what source, record, or observation could test it.`;
   }
 
   if (matched.includes('validation')) {

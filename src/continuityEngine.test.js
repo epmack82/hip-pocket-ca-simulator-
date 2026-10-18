@@ -23,7 +23,7 @@ test('an introduction first creates room for later assessment', () => {
     scenario
   );
   expect(adjusted.relationshipShifts['School director']).toBe(4);
-  expect(adjusted.continuityNarrative).toContain('reason for the visit is now understood');
+  expect(adjusted.continuityNarrative).toContain('professional introduction establishes access');
 });
 
 test('current continuity returns the adapted scene instead of a generic progress phrase', () => {

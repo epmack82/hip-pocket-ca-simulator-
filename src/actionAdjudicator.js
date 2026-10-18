@@ -91,7 +91,7 @@ export function adjudicateAction(prompt = '', scenario = {}, context = {}) {
     ? `The activity at ${place} pauses rather than being treated as successful rapport. Staff keep the students under supervision while the teammate redirects the Soldier to the host, acknowledges the interruption, and asks whether a later, mission-relevant cultural or recreational exchange would be appropriate.`
     : `${sentenceName(stakeholder)} waits for the Soldier to return, state the team's purpose, and personally lead the discussion. The interpreter remains available to facilitate, but the missed opening has created uncertainty about who is responsible for the visit.`;
   const coaching = childIssue
-    ? 'Protected-population coaching: rapport with children can be appropriate when it supports the mission, but coordinate with the responsible authority first, remain with the official engagement, use the interpreter as support, and follow local safeguarding and supervision expectations.'
+    ? 'Protected-population coaching: rapport with children can be appropriate when it supports the mission, but obtain permission and coordinate with the responsible authority first, remain with the official engagement, use the interpreter as support, and follow local safeguarding and supervision expectations.'
     : 'Interpreter coaching: lead the engagement yourself. Brief the interpreter, speak through them in short segments, watch both the stakeholder and the interpretation, confirm meaning, and retain responsibility for every question, statement, and commitment.';
 
   return {

@@ -1,23 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronRight, Send, Package, ArrowRight, Loader2, AlertCircle, RotateCcw, Trash2 } from 'lucide-react';
 import { createMissionSeed, generateMission, summarizeMissionCoverage } from './scenarioEngine';
-import { createOfflineDebrief, evaluateOffline } from './offlineEvaluator';
-import { advanceSiteState, buildValidationBrief, createSiteState, DIMENSIONS, followLead, siteStatusSummary } from './siteProgression';
+import { buildValidationBrief, createSiteState, siteStatusSummary } from './siteProgression';
 import { getProductWorksheet } from './productTemplates';
 import { getKnowledgeQuestions, gradeKnowledgeQuestions } from './knowledgeChecks';
 import { teamHuddleNarrative } from './teamNarrative';
-import { applyActionAdjudication } from './actionAdjudicator';
-import { discoverLead, evaluateLeadInvestigation } from './leadEngine';
-import { applyConsequenceRules, consequenceSummary } from './consequenceEngine';
 import { firstAvailableSaveSlot, saveConfirmation } from './saveManager';
-import { applyActionOrderRules, currentContinuityNarrative } from './continuityEngine';
-import { applyInterpreterRules } from './interpreterEngine';
-import { buildDecisionTimeline, buildEngagementProfile } from './engagementProfile';
+import { currentContinuityNarrative } from './continuityEngine';
+import { buildDecisionTimeline } from './engagementProfile';
 import { determineMissionDisposition } from './missionOutcome';
 import { recommendTrainingRecognition } from './awardRecommendation';
 import { ELIGIBILITY_REFERENCES, gradeAwardPractice, RECOGNITION_LEVELS } from './awardEducation';
-import { understandAction } from './actionUnderstanding';
 import { buildPlaytestReport, createPlaytestTurn, reportFilename, updateTurnFeedback } from './playtestReport';
+import { processUnifiedAction, outcomeFromTurn } from './unifiedActionPipeline';
+import { migrateWorldState, SCORE_DIMENSIONS } from './worldUpdate';
+import { APP_VERSION, buildPerformanceReport, performanceReportHtml, performanceDebrief, downloadFile } from './performanceReport';
 
 // ===== SCENARIO DATA (MOVED OUTSIDE COMPONENT) =====
 // Retained temporarily for save migration reference; new missions use scenarioEngine.js.
@@ -161,12 +158,22 @@ export default function HipPocketV43() {
   const [testerFeedbackOpen, setTesterFeedbackOpen] = useState(false);
   const [testerFeedback, setTesterFeedback] = useState({ categories: [], expectedResponse: '', notes: '' });
   const [reportNotice, setReportNotice] = useState('');
+  const [worldState, setWorldState] = useState(() => migrateWorldState());
+  const [sessionId, setSessionId] = useState('');
+  const [sessionStartedAt, setSessionStartedAt] = useState(null);
+  const [sessionCompletedAt, setSessionCompletedAt] = useState(null);
 
   // ===== LOAD SAVES FROM LOCALSTORAGE ON MOUNT =====
   useEffect(() => {
-    const savedSlots = JSON.parse(localStorage.getItem('hipPocket_saves') || 'null');
-    if (savedSlots) {
-      setSaveSlots(savedSlots);
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [screen]);
+
+  useEffect(() => {
+    try {
+      const savedSlots = JSON.parse(localStorage.getItem('hipPocket_saves') || 'null');
+      if (Array.isArray(savedSlots)) setSaveSlots([...savedSlots.slice(0, 5), ...Array(5).fill(null)].slice(0, 5));
+    } catch {
+      setSaveNotice('A saved mission could not be read. It has not been deleted; export your browser data before clearing it.');
     }
   }, []);
 
@@ -226,7 +233,7 @@ export default function HipPocketV43() {
   }
 
   // ===== PHASE 3: PERSISTENCE =====
-  function saveGame(slotNumber = currentSaveSlot) {
+  function saveGame(slotNumber = currentSaveSlot, overrides = {}) {
     const saveData = {
       operator,
       playerRole,
@@ -246,7 +253,17 @@ export default function HipPocketV43() {
       missionConsequences,
       readinessResults,
       playtestTurns,
-      timestamp: new Date().toISOString()
+      worldState,
+      sessionId,
+      sessionStartedAt,
+      sessionCompletedAt,
+      debrief,
+      screen,
+      lastOutcome,
+      pendingAdvance,
+      leadReturnPending,
+      timestamp: new Date().toISOString(),
+      ...overrides
     };
     const newSlots = [...saveSlots];
     newSlots[slotNumber] = saveData;
@@ -255,9 +272,6 @@ export default function HipPocketV43() {
     return saveData;
   }
 
-  function autoSave() {
-    saveGame(currentSaveSlot);
-  }
 
   function beginNewGame() {
     const availableSlot = firstAvailableSaveSlot(saveSlots);
@@ -265,7 +279,11 @@ export default function HipPocketV43() {
       setSaveNotice('All five save slots are occupied. Delete a save before starting a new mission.');
       return;
     }
+    resetGame();
     setCurrentSaveSlot(availableSlot);
+    setSessionId(window.crypto?.randomUUID?.() || `session-${Date.now()}`);
+    setSessionStartedAt(new Date().toISOString());
+    setSessionCompletedAt(null);
     setSaveNotice(`New mission reserved in Save Slot ${availableSlot + 1}.`);
     setScreen('characterCreation');
   }
@@ -297,8 +315,16 @@ export default function HipPocketV43() {
     setMissionConsequences(save.missionConsequences || []);
     setReadinessResults(save.readinessResults || {});
     setPlaytestTurns(save.playtestTurns || []);
+    setWorldState(migrateWorldState({ world: save.worldState, siteStates: save.siteStates, relationships: save.relationships, missionConsequences: save.missionConsequences }));
+    setSessionId(save.sessionId || `legacy-${save.missionSeed || slotNumber}`);
+    setSessionStartedAt(save.sessionStartedAt || null);
+    setSessionCompletedAt(save.sessionCompletedAt || null);
+    setDebrief(save.debrief || null);
+    setLastOutcome(save.lastOutcome || null);
+    setPendingAdvance(save.pendingAdvance || false);
+    setLeadReturnPending(save.leadReturnPending || false);
     setCurrentSaveSlot(slotNumber);
-    setScreen('scenarioScreen');
+    setScreen(save.debrief ? 'debrief' : save.worldState?.missionOutcome?.terminated ? 'missionFailure' : save.pendingAdvance && save.lastOutcome ? 'outcomeDisplay' : 'scenarioScreen');
   }
 
   function deleteSave(slotNumber) {
@@ -324,197 +350,47 @@ export default function HipPocketV43() {
     };
   }
 
-  // ===== API CALL (UNCHANGED) =====
-  async function callClaude(systemPrompt, userMsg) {
-    try {
-      const response = await fetch('https://hip-pocket-api.onrender.com/api/evaluate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ systemPrompt, userMsg })
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'API error');
-      }
-      return data;
-    } catch (error) {
-      console.warn('Cloud evaluation unavailable; using offline evaluator.', error);
-      return evaluateOffline(userMsg, currentScenario(), currentSiteState());
-    }
-  }
-
-  // ===== CONTEXT BUILDERS =====
-  function buildContextBlock() {
+  function applyTurn(turn, summaryLabel) {
     const scenario = currentScenario();
-    const complexity = getComplexityMultiplier();
-    const roleDesc = {
-      'specialist': 'You are a CA Specialist — junior role, here to observe and learn.',
-      'canco': 'You are a Civil Affairs NCO (CANCO) — responsible for tactical CA execution.',
-      'sgt': 'You are a Team Sergeant — responsible for team mission success and NCO oversight.',
-      'chief': 'You are the Team Chief — fully responsible for team mission success and all CA decisions.'
-    }[playerRole];
-
-    return `
-CIVIL AFFAIRS TRAINING SCENARIO — Hip Pocket v4.3
-${roleDesc}
-
-SCENARIO: ${scenario.name}
-LOCATION: ${scenario.location}
-DAY: ${currentDay} of ${missionDuration}
-MISSION DAY CONTEXT: ${scenario.difficultyContext}
-
-HADR FOCUS: ${scenario.hadrFocus}
-
-NARRATIVE:
-${scenario.narrative}
-
-KEY STAKEHOLDERS: ${scenario.keyStakeholders.join(', ')}
-SUGGESTED PRODUCTS: ${scenario.suggestedProducts.join(', ')}
-
-REFERENCE STANDARDS (STP 41-38B34 Assessment Tiers):
-PLANNED: ${scenario.referenceStandards.planned}
-DELIBERATE: ${scenario.referenceStandards.deliberate}
-INITIAL: ${scenario.referenceStandards.initial}
-
-CURRENT RELATIONSHIPS:
-${Object.entries(relationships).map(([name, value]) => `- ${name}: ${value}/100`).join('\n')}
-
-ACTIVE MISSION CONSEQUENCES:
-${missionConsequences.length ? consequenceSummary(missionConsequences) : '(none)'}
-
-ASSESSMENT DIFFICULTY MULTIPLIER: ${complexity.toFixed(2)}x
-(Higher = stricter grading expectations for this day/role combination)
-`;
-  }
-
-  function priorLogBlock() {
-    if (scenarioLog.length === 0) return '';
-    return `\nPRIOR ACTIONS THIS SCENARIO:\n${scenarioLog.map(l => `- ${l}`).join('\n')}\n`;
-  }
-
-  // ===== EVAL SYSTEM PROMPT (UPDATED FOR v4.3) =====
-  const EVAL_SYSTEM_PROMPT = `You are an experienced Civil Affairs training evaluator for the US Army. You evaluate trainee actions in a realistic HADR civil assessment scenario. Respond ONLY with valid JSON, no markdown.
-
-Your evaluation accounts for:
-1. STP 41-38B34 performance standards (PLANNED: 6 measures, DELIBERATE: 7 measures, INITIAL: 4 measures)
-2. Assessment quality based on ASCOPE/PMESII-PT framework
-3. Appropriate routing per FM 3-57 CNDE rules: threat networks→S-2, sustainment networks→S-4, targeting→S-3, general civil data→CIM Cell/S-9, NGOs→S-3+S-9
-4. Annex citations: Annex K (CAO), Annex P (Host-Nation Support), Annex V (Interagency)
-5. Relationship shifts based on engagement quality
-
-DIFFICULTY ADJUSTMENT: Apply the difficulty multiplier from the scenario context. A trainee scoring 70 at 1.0x would score 56 at 1.2x (higher multiplier = stricter evaluation). At 0.8x, they'd score 84 (more generous).
-
-RESPONSE JSON FORMAT (always include these fields):
-{
-  "narrativeOutcome": "2-3 sentences describing immediate consequence of this action",
-  "qualityScore": <0-100 based on assessment standard and difficulty multiplier>,
-  "assessmentType": "PLANNED|DELIBERATE|INITIAL|OTHER",
-  "performanceMeasures": <count of measures met for the assessed type>,
-  "relationshipShifts": {"Name": -5 to +10},
-  "annexCitation": "K|P|V|multiple|none",
-  "routingRationale": "brief routing explanation",
-  "product": {
-    "name": "Product Name",
-    "type": "Assessment|KLE|Memo|Plan|Other",
-    "content": "core content (2-3 sentences)",
-    "recipient": "S-2|S-3|S-4|S-9|CIM Cell|Other",
-    "citationStandard": "ATP 3-57.50|other doctrine"
-  } OR null,
-  "feedbackTone": "encouraging|neutral|direct" <-- match role expectations
-}`;
-
-  function applyResult(result, summaryLabel, userMsg = '', interpretation = null) {
-    const scenario = currentScenario();
-    const consequenceApplication = applyConsequenceRules(result, userMsg, scenario, missionConsequences);
-    const interpreterApplication = applyInterpreterRules(
-      consequenceApplication.result,
-      userMsg,
-      scenario
-    );
-    const continuityAdjustedResult = applyActionOrderRules(
-      interpreterApplication.result,
-      currentSiteState(),
-      summaryLabel,
-      scenario
-    );
-    const actionAdjudication = applyActionAdjudication(
-      continuityAdjustedResult,
-      userMsg,
-      scenario,
-      {
-        seed: missionSeed,
-        playerRole,
-        teamNames: trainingPersonalization.teamNames,
-        interpretation
-      }
-    );
-    const consequenceAdjustedResult = actionAdjudication.result;
-    setMissionConsequences(consequenceApplication.consequences);
-    const evaluatorLead = (consequenceAdjustedResult.progress?.leads || []).find(lead => lead.id === scenario.lead?.id);
-    const earnedLead = consequenceApplication.detected || consequenceAdjustedResult.evaluationMode === 'offline-lead'
-      ? null
-      : discoverLead(summaryLabel, scenario) || evaluatorLead;
-    const normalizedResult = {
-      ...consequenceAdjustedResult,
-      actionInterpretation: interpretation,
-      progress: {
-        ...(consequenceAdjustedResult.progress || {}),
-        leads: consequenceAdjustedResult.evaluationMode === 'offline-lead'
-          ? consequenceAdjustedResult.progress?.leads || []
-          : earnedLead ? [earnedLead] : []
-      }
-    };
-    const advancedSiteState = advanceSiteState(currentSiteState(), normalizedResult, summaryLabel, scenario);
-    const deltas = normalizedResult.relationshipShifts || {};
+    const normalizedResult = outcomeFromTurn(turn);
+    const nextWorld = turn.nextWorld;
+    const advancedSiteState = nextWorld.sites[scenario.id];
+    const deltas = normalizedResult.relationshipShifts;
+    const nextLog = [...scenarioLog, summaryLabel];
+    const nextRecord = { ...normalizedResult, summaryLabel };
+    const product = normalizedResult.product;
+    const nextProducts = product ? [...allProducts.filter(p => !(p.name === product.name && p.scenarioId === scenario.id)), {
+      ...product, scenarioId: scenario.id, scenarioName: scenario.name
+    }] : allProducts;
+    const playtestTurn = createPlaytestTurn({
+      missionSeed, scenario, day: currentDay, locationNumber: scenarioIndex + 1,
+      actionNumber: advancedSiteState.actionCount, playerAction: turn.actionRecord.rawText,
+      summaryLabel, interpretation: turn.interpretation, outcome: normalizedResult,
+      relationshipChanges: deltas, siteState: advancedSiteState
+    });
+    playtestTurn.actionRecord = turn.actionRecord;
+    playtestTurn.worldUpdate = turn.worldUpdate;
+    const nextTurns = [...playtestTurns, playtestTurn];
+    setWorldState(nextWorld);
+    setMissionConsequences(nextWorld.persistentConditions);
+    setRelationships(nextWorld.relationships);
+    setSiteStates(nextWorld.sites);
     setLastDeltas(deltas);
     setLastOutcome(normalizedResult);
-    setRelationships(prev => {
-      const updated = { ...prev };
-      Object.entries(deltas).forEach(([k, v]) => {
-        const base = updated[k] !== undefined ? updated[k] : 50;
-        updated[k] = Math.min(100, Math.max(0, base + v));
-      });
-      return updated;
-    });
-
-    const gist = (normalizedResult.narrativeOutcome || '').split('. ')[0] + '.';
-    setScenarioLog(prev => [...prev, `${summaryLabel} → ${gist}`]);
-    setScenarioRecord({ ...normalizedResult, summaryLabel });
-    setSiteStates(prev => ({
-      ...prev,
-      [scenario.id]: advancedSiteState
-    }));
-
-    const rawAction = userMsg.match(/TRAINEE'S ACTION: "([\s\S]*?)"\s*\n\nEvaluate/i)?.[1]
-      || userMsg.match(/ADDITIONAL DETAILS FROM TRAINEE: "([\s\S]*?)"/i)?.[1]
-      || summaryLabel;
-    const turn = createPlaytestTurn({
-      missionSeed,
-      scenario,
-      day: currentDay,
-      locationNumber: scenarioIndex + 1,
-      actionNumber: (currentSiteState().actionCount || 0) + 1,
-      playerAction: rawAction,
-      summaryLabel,
-      interpretation,
-      outcome: normalizedResult,
-      relationshipChanges: deltas,
-      siteState: advancedSiteState
-    });
-    setPlaytestTurns(prev => [...prev, turn]);
+    setScenarioLog(nextLog);
+    setScenarioRecord(nextRecord);
+    setAllProducts(nextProducts);
+    setPlaytestTurns(nextTurns);
     setTesterFeedbackOpen(false);
     setTesterFeedback({ categories: [], expectedResponse: '', notes: '' });
     setReportNotice('');
-
-    if (normalizedResult.product) {
-      setAllProducts(prev => [...prev, {
-        ...normalizedResult.product,
-        scenarioName: currentScenario().name,
-        completionScore: normalizedResult.qualityScore,
-        completionPercent: normalizedResult.productCompletionPercent
-      }]);
-    }
-    return normalizedResult;
+    return {
+      result: normalizedResult,
+      save: { worldState: nextWorld, missionConsequences: nextWorld.persistentConditions,
+        relationships: nextWorld.relationships, siteStates: nextWorld.sites,
+        scenarioLog: nextLog, scenarioRecord: nextRecord, allProducts: nextProducts,
+        playtestTurns: nextTurns, lastOutcome: normalizedResult }
+    };
   }
 
   function toggleFeedbackCategory(category) {
@@ -544,7 +420,7 @@ RESPONSE JSON FORMAT (always include these fields):
       setReportNotice('Complete at least one action before exporting a report.');
       return;
     }
-    const report = buildPlaytestReport({ missionSeed, turns: playtestTurns });
+const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersion: APP_VERSION });
     const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -557,72 +433,61 @@ RESPONSE JSON FORMAT (always include these fields):
     setReportNotice('Playtest report downloaded. Review it, then upload it to Codex for analysis.');
   }
 
-  // ===== SUBMIT HANDLERS =====
-  async function runEval(userMsg, summaryLabel, opts = {}) {
-    const { isMoveOn, forceOffline } = opts;
+  // Every field action, product, and lead goes through the same local decision.
+  function runEval(rawText, summaryLabel, opts = {}) {
+    if (loading) return;
     setLoading(true);
     setError(null);
-    setLastSubmission({ userMsg, summaryLabel, isMoveOn });
+    setLastSubmission({ rawText, summaryLabel, opts });
     try {
-      const traineeAction = userMsg.match(/TRAINEE'S ACTION: "([\s\S]*?)"\s*\n\nEvaluate/i)?.[1] || actionText.trim() || summaryLabel;
-      const interpretation = await understandAction(traineeAction, currentScenario(), scenarioLog);
-      const result = forceOffline
-        ? evaluateOffline(userMsg, currentScenario(), currentSiteState())
-        : await callClaude(EVAL_SYSTEM_PROMPT, userMsg);
-      const appliedResult = applyResult(result, summaryLabel, userMsg, interpretation);
-      setPendingAdvance(isMoveOn);
-      setScreen(appliedResult.missionTerminated ? 'missionFailure' : appliedResult.product ? 'productDisplay' : 'outcomeDisplay');
-      setActionText('');
-      setShowProductPanel(false);
-      setSelectedProductType(null);
-      setCustomProductMode(false);
-      setCustomProductText('');
-      setProductDetails('');
-      autoSave(); // Auto-save after each action
+      const scenario = currentScenario();
+      const activeScenario = opts.kind === 'lead' && activeLead
+        ? { ...scenario, keyStakeholders: [activeLead.contact], location: activeLead.label } : scenario;
+      const world = { ...worldState, sites: siteStates, relationships };
+      const turn = processUnifiedAction({
+        id: (sessionId || missionSeed) + '-turn-' + ((world.history || []).length + 1),
+        rawText, kind: opts.kind || 'action', productName: opts.productName,
+        seed: missionSeed, scenarioId: scenario.id, turnNumber: (world.history || []).length + 1,
+        scenario: activeScenario, activeLead: opts.kind === 'lead' ? activeLead : null, stakeholders: activeScenario.keyStakeholders,
+        location: activeScenario.location, siteType: scenario.siteType,
+        submittedProducts: allProducts.filter(p => p.scenarioId === scenario.id).map(p => p.name),
+        worldState: world
+      });
+      if (!turn.ok) throw new Error(turn.errors.join(' '));
+      const applied = applyTurn(turn, summaryLabel);
+      const nextScreen = applied.result.missionTerminated ? 'missionFailure' : applied.result.product ? 'productDisplay' : 'outcomeDisplay';
+      setPendingAdvance(Boolean(opts.isMoveOn));
+      setLeadReturnPending(opts.kind === 'lead');
+      setScreen(nextScreen);
+      setActionText(''); setShowProductPanel(false); setSelectedProductType(null);
+      setCustomProductMode(false); setCustomProductText(''); setProductDetails('');
+      saveGame(currentSaveSlot, { ...applied.save, screen: nextScreen, pendingAdvance: Boolean(opts.isMoveOn), leadReturnPending: opts.kind === 'lead' });
     } catch (e) {
-      setError('Something went wrong evaluating that. You can try again.');
-    } finally {
-      setLoading(false);
-    }
+      setError(e.message || 'The local action could not be recorded. Your previous state is unchanged.');
+    } finally { setLoading(false); }
   }
 
   function retry() {
-    if (!lastSubmission) return;
-    const { userMsg, summaryLabel, isMoveOn } = lastSubmission;
-    runEval(userMsg, summaryLabel, { isMoveOn });
+    if (lastSubmission) runEval(lastSubmission.rawText, lastSubmission.summaryLabel, lastSubmission.opts);
   }
 
   function submitAction() {
-    if (!actionText.trim() || loading) return;
-    const userMsg = `${buildContextBlock()}${priorLogBlock()}\nTRAINEE'S ACTION: "${actionText.trim()}"\n\nEvaluate this action and respond with the JSON shape described.`;
-    runEval(userMsg, `Action: "${actionText.trim().substring(0, 80)}"`);
+    if (actionText.trim()) runEval(actionText.trim(), actionText.trim());
   }
 
   function submitLeadAction() {
-    if (!activeLead || !actionText.trim() || loading) return;
-    const result = evaluateLeadInvestigation(actionText.trim(), activeLead, currentScenario());
-    applyResult(result, `Lead investigation at ${activeLead.label}`);
-    setActionText('');
-    setLeadReturnPending(true);
-    setScreen('outcomeDisplay');
+    if (activeLead && actionText.trim()) runEval(actionText.trim(), actionText.trim(), { kind: 'lead' });
   }
 
   function submitProduct() {
     const productType = customProductMode ? customProductText.trim() : selectedProductType;
-    if (!productType || !productDetails.trim() || loading) return;
-    const detailsLine = productDetails.trim() ? `\nADDITIONAL DETAILS FROM TRAINEE: "${productDetails.trim()}"` : '';
-    const userMsg = `${buildContextBlock()}${priorLogBlock()}\nTRAINEE WANTS TO CREATE THIS PRODUCT: "${productType}"${detailsLine}\n\nGenerate this product and evaluate the overall scenario quality based on all actions taken so far, including this product. Respond with the JSON shape described.`;
-    runEval(userMsg, `Product: "${productType}"`, { forceOffline: true });
+    if (productType && productDetails.trim()) runEval(productDetails.trim(), 'Submitted ' + productType, { kind: 'product', productName: productType });
   }
 
   function moveOn() {
     if (loading) return;
-    if (scenarioRecord) {
-      finalizeScenario();
-    } else {
-      const userMsg = `${buildContextBlock()}\nThe trainee chose to move on from this location WITHOUT taking any action or creating any product.\n\nEvaluate against the INITIAL reference and respond with the JSON shape described (omit "product").`;
-      runEval(userMsg, 'Moved on without engaging', { isMoveOn: true });
-    }
+    if (scenarioRecord) finalizeScenario();
+    else runEval('Depart without engaging at this location.', 'Departed without engaging', { kind: 'skip', isMoveOn: true });
   }
 
   function finalizeScenario() {
@@ -648,7 +513,7 @@ RESPONSE JSON FORMAT (always include these fields):
       setCurrentDay(currentDay + 1);
       setScenarioIndex(scenarioIndex + 1);
       setScreen('scenarioScreen');
-      autoSave();
+      saveGame(currentSaveSlot, { missionRecords: updatedRecords, currentDay: currentDay + 1, scenarioIndex: scenarioIndex + 1, scenarioLog: [], scenarioRecord: null, activeLead: null, screen: 'scenarioScreen', pendingAdvance: false });
     } else {
       setScreen('debriefLoading');
       generateDebrief(updatedRecords);
@@ -720,49 +585,42 @@ RESPONSE JSON FORMAT (always include these fields):
     }
   }
 
-  async function generateDebrief(records) {
-    setLoading(true);
-    try {
-      const summary = records.map(r => `${r.scenarioName}: ${r.summaryLabel} (${r.qualityScore} pts)`).join('\n');
-      const productsText = allProducts.map(p => `${p.name} (${p.type}) → ${p.recipient}`).join('\n');
-      const userMsg = `Review this trainee's CA mission performance and generate a brief encouraging debrief:
+  function getPerformanceReport(records = missionRecords, completedAt = sessionCompletedAt) {
+    return buildPerformanceReport({
+      world: worldState, operator, playerRole, sessionId, missionSeed,
+      missionLabel: personalizedMissionLabel(), startedAt: sessionStartedAt, completedAt,
+      plannedLocations: missionDuration, missionRecords: records, readinessResults, products: allProducts
+    });
+  }
 
-MISSION SUMMARY:
-${summary}
+  function exportPerformanceReport(format) {
+    const report = getPerformanceReport();
+    const filename = 'hip-pocket-performance-' + String(sessionId || missionSeed).replace(/[^a-z0-9-]/gi, '_');
+    if (format === 'json') downloadFile(filename + '.json', JSON.stringify(report, null, 2), 'application/json');
+    else downloadFile(filename + '.html', performanceReportHtml(report), 'text/html;charset=utf-8');
+    setReportNotice(format === 'json' ? 'Performance evidence downloaded.' : 'Report downloaded. Open it and use Print → Save as PDF.');
+  }
 
-PRODUCTS CREATED:
-${productsText || '(none)'}
+  function printPerformanceReport() {
+    const frame = document.createElement('iframe');
+    frame.title = 'Printable Soldier Performance Report';
+    frame.style.cssText = 'position:fixed;width:0;height:0;border:0';
+    frame.onload = () => {
+      frame.contentWindow.onafterprint = () => frame.remove();
+      frame.contentWindow.focus();
+      frame.contentWindow.print();
+    };
+    frame.srcdoc = performanceReportHtml(getPerformanceReport());
+    document.body.appendChild(frame);
+  }
 
-RELATIONSHIPS:
-${Object.entries(relationships).map(([name, val]) => `${name}: ${val}/100`).join('\n')}
-
-MISSION CONSEQUENCES:
-${missionConsequences.length ? consequenceSummary(missionConsequences) : '(none)'}
-
-Generate a brief debrief (5-7 sentences) that:
-1. Highlights 1-2 strengths
-2. Identifies 1-2 areas for improvement
-3. Notes relationship dynamics
-4. Gives forward guidance
-Respond with only the debrief text, no JSON.`;
-
-      const response = await fetch('https://hip-pocket-api.onrender.com/api/debrief', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userMsg })
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'API error');
-      }
-      setDebrief(data.text);
-      setScreen('debrief');
-    } catch (e) {
-      setDebrief(createOfflineDebrief(records, allProducts, missionConsequences));
-      setScreen('debrief');
-    } finally {
-      setLoading(false);
-    }
+  function generateDebrief(records) {
+    const endedAt = new Date().toISOString();
+    const text = performanceDebrief(getPerformanceReport(records, endedAt));
+    setSessionCompletedAt(endedAt);
+    setDebrief(text);
+    setScreen('debrief');
+    saveGame(currentSaveSlot, { missionRecords: records, sessionCompletedAt: endedAt, debrief: text, screen: 'debrief', pendingAdvance: false, activeLead: null });
   }
 
   function resetGame() {
@@ -811,6 +669,10 @@ Respond with only the debrief text, no JSON.`;
     setTesterFeedbackOpen(false);
     setTesterFeedback({ categories: [], expectedResponse: '', notes: '' });
     setReportNotice('');
+    setWorldState(migrateWorldState());
+    setSessionId('');
+    setSessionStartedAt(null);
+    setSessionCompletedAt(null);
     setCurrentSaveSlot(0);
   }
 
@@ -853,7 +715,7 @@ Respond with only the debrief text, no JSON.`;
         <div className="max-w-3xl mx-auto">
           <div className="text-center mb-12">
             <h1 className="text-6xl font-bold text-white mb-3">Hip Pocket</h1>
-            <p className="text-blue-200 text-xl mb-2">Civil Affairs Training v4.3</p>
+            <p className="text-blue-200 text-xl mb-2">Civil Affairs Training · {APP_VERSION}</p>
             <p className="text-slate-400">Save & load • Difficulty scaling • 3/7/14/29-day missions</p>
           </div>
 
@@ -978,25 +840,25 @@ Respond with only the debrief text, no JSON.`;
       {
         id: 'specialist',
         name: 'CA Specialist',
-        desc: 'Junior role. Maximum hints and assistance. Most lenient grading.',
+        desc: 'Junior role. Optional next-action ideas and additional guidance.',
         difficulty: '★☆☆☆'
       },
       {
         id: 'canco',
         name: 'CANCO',
-        desc: 'Mid-level NCO. Some hints. Standard grading expectations.',
+        desc: 'Mid-level NCO. Some guidance. The same evidence rubric applies.',
         difficulty: '★★☆☆'
       },
       {
         id: 'sgt',
         name: 'Team Sergeant',
-        desc: 'Senior NCO. Minimal hints. Strict grading standards.',
+        desc: 'Senior NCO. Minimal hints and responsibility for team performance.',
         difficulty: '★★★☆'
       },
       {
         id: 'chief',
         name: 'Team Chief',
-        desc: 'Team leader. No hints. Maximum rigor. Full responsibility.',
+        desc: 'Team leader. No hints. Full responsibility; the same evidence rubric applies.',
         difficulty: '★★★★'
       }
     ];
@@ -1006,7 +868,7 @@ Respond with only the debrief text, no JSON.`;
         <div className="max-w-3xl mx-auto">
           <div className="bg-gradient-to-r from-purple-700 to-purple-800 rounded-lg p-8 mb-8">
             <h1 className="text-4xl font-bold text-white">SELECT YOUR ROLE</h1>
-            <p className="text-purple-100 mt-2">Choose your difficulty level</p>
+            <p className="text-purple-100 mt-2">Choose your role and level of guidance</p>
           </div>
 
           <div className="space-y-3 mb-6">
@@ -1366,6 +1228,7 @@ Respond with only the debrief text, no JSON.`;
         [checkPhase]: {
           ...(prev[checkPhase] || {}),
           attempts: checkAttempt,
+          questionCount: questions.length,
           firstAttemptPassed: checkAttempt === 1 ? result.passed : prev[checkPhase]?.firstAttemptPassed || false,
           firstAttemptMissed: checkAttempt === 1 ? result.missed.length : prev[checkPhase]?.firstAttemptMissed ?? 0,
           completedPassed: result.passed,
@@ -1661,7 +1524,6 @@ Respond with only the debrief text, no JSON.`;
                         </div>
                         <button
                           onClick={() => {
-                            setSiteStates(prev => ({ ...prev, [scenario.id]: followLead(prev[scenario.id], lead.id) }));
                             setActiveLead(lead);
                             setActionText('');
                             setScreen('leadScene');
@@ -1721,7 +1583,7 @@ Respond with only the debrief text, no JSON.`;
               <div>
                 <p className="text-slate-400 text-xs font-bold uppercase mb-2">Performance picture</p>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                  {DIMENSIONS.map(([key, label]) => (
+                  {SCORE_DIMENSIONS.map(([key, label]) => (
                     <div key={key} className="bg-slate-900/50 rounded p-2">
                       <p className="text-slate-400 text-xs">{label}</p>
                       <p className="text-white font-bold">{siteState.dimensionScores[key] || 0}</p>
@@ -1858,7 +1720,7 @@ Respond with only the debrief text, no JSON.`;
                 rows={16}
                 className="w-full px-4 py-3 bg-slate-900 text-white rounded border border-slate-600 placeholder-slate-500 resize-y mb-2 font-mono text-sm"
               />
-              <p className="text-amber-200 text-xs mb-4">You may submit the blank worksheet for 5 points. Product quality rises according to how many trainee-entry fields you complete; fully completing fields does not guarantee factual accuracy or doctrinal quality.</p>
+              <p className="text-amber-200 text-xs mb-4">Replace the template fields with your observations. Blank or deleted fields earn no completion credit. Completion does not establish factual accuracy; your leader can review the submitted content.</p>
 
               <div className="flex gap-3">
                 <button
@@ -1921,12 +1783,10 @@ Respond with only the debrief text, no JSON.`;
           </div>
 
           {lastOutcome.actionInterpretation && (
-            <details className="bg-indigo-950/35 rounded-lg p-5 border border-indigo-600 mb-6" open>
-              <summary className="text-indigo-200 font-bold cursor-pointer">System Interpretation — Testing View</summary>
+            <details className="bg-indigo-950/35 rounded-lg p-5 border border-indigo-600 mb-6">
+              <summary className="text-indigo-200 font-bold cursor-pointer">How This Action Was Interpreted</summary>
               <p className="text-slate-300 text-xs mt-2 mb-4">
-                {lastOutcome.actionInterpretation.source === 'fallback'
-                  ? 'Limited offline fallback — the semantic service was unavailable. Treat this interpretation as provisional.'
-                  : `Semantic interpretation active (${lastOutcome.actionInterpretation.confidence}% confidence).`}
+                Local, authored interpretation — no AI service or API key is used. Unrecognized details are not treated as established facts.
               </p>
               <div className="grid md:grid-cols-2 gap-3 text-sm">
                 <p><span className="text-slate-400">Intent:</span> <span className="text-white">{lastOutcome.actionInterpretation.intent}</span></p>
@@ -1939,10 +1799,11 @@ Respond with only the debrief text, no JSON.`;
               <div className="mt-4">
                 <p className="text-slate-400 text-xs font-bold uppercase">Actions understood</p>
                 <ul className="list-disc pl-5 text-slate-200 text-sm mt-1">
-                  {lastOutcome.actionInterpretation.actions.map(item => <li key={item}>{item}</li>)}
+                  {lastOutcome.actionInterpretation.actions.map((item, index) => <li key={index}>{typeof item === 'string' ? item : item.description}{typeof item === 'object' && <span className="text-slate-400"> — {item.negated ? 'not performed' : item.hypothetical ? 'hypothetical' : item.kinds?.join(', ') || 'unresolved'}</span>}</li>)}
                 </ul>
               </div>
-              <p className="text-indigo-100 text-sm mt-4"><strong>Likely immediate effect:</strong> {lastOutcome.actionInterpretation.likelyImmediateEffect}</p>
+              <p className="text-indigo-100 text-sm mt-4"><strong>Decision:</strong> {lastOutcome.worldUpdate?.classification || 'Legacy interpretation'}</p>
+              {lastOutcome.actionInterpretation.ambiguities?.length > 0 && <p className="text-amber-200 text-sm mt-2">Some details remain unresolved. They have not earned credit or caused a penalty.</p>}
             </details>
           )}
 
@@ -2051,16 +1912,16 @@ Respond with only the debrief text, no JSON.`;
           </div>
 
           <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6 text-slate-100 overflow-x-auto">
+            <p className="whitespace-pre-wrap mb-6">{lastOutcome.narrativeOutcome}</p>
             <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed">{lastOutcome.product.content}</pre>
           </div>
 
           <div className="bg-slate-800 rounded-lg p-4 border border-slate-700 mb-6">
             <p className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">Worksheet Completion Score</p>
-            <p className="text-2xl font-bold text-white">{lastOutcome.qualityScore} / 100</p>
+            <p className="text-2xl font-bold text-white">{lastOutcome.product.completionScore ?? lastOutcome.productCompletionPercent ?? 0} / 100</p>
             <p className="text-slate-300 text-sm mt-2">Trainee-entry fields completed: {lastOutcome.productCompletionPercent ?? 0}%</p>
-            <p className="text-slate-300 text-sm mt-2">Type: {lastOutcome.assessmentType}</p>
-            <p className="text-slate-300 text-sm">Measures Met: {lastOutcome.performanceMeasures}</p>
-            <p className="text-amber-200 text-xs mt-3">This score measures worksheet completion only. Accuracy, source validation, analysis, and doctrinal quality remain part of the broader mission evaluation.</p>
+            <p className="text-slate-300 text-sm mt-2">Current site practice score across all dimensions: {lastOutcome.qualityScore} / 100</p>
+            <p className="text-amber-200 text-xs mt-3">Worksheet completion is not a factual-accuracy grade. Source validation, analysis, and doctrinal quality require instructor review.</p>
           </div>
 
           <div className="grid sm:grid-cols-2 gap-3">
@@ -2096,11 +1957,25 @@ Respond with only the debrief text, no JSON.`;
 
   // ===== RENDER: DEBRIEF =====
   if (screen === 'debrief' && debrief) {
-    const totalScore = missionRecords.reduce((sum, r) => sum + (r.qualityScore || 0), 0);
-    const avgScore = missionRecords.length > 0 ? (totalScore / missionRecords.length).toFixed(1) : 0;
-    const engagementProfile = buildEngagementProfile(missionRecords, allProducts, missionConsequences, readinessResults);
+    const report = getPerformanceReport();
+    const avgScore = report.overallScore;
+    const evidenceDimensions = report.dimensions.map(d => ({
+      ...d, description: 'Local practice rubric',
+      evidence: d.evidence.length ? d.evidence.length + ' recorded scoring decision(s); see the downloadable evidence report.' : 'No demonstrated evidence recorded.'
+    }));
+    const readinessScores = report.readiness.map(r => r.firstAttemptScore).filter(n => n !== null);
+    const engagementProfile = {
+      dimensions: evidenceDimensions, overallScore: avgScore,
+      readinessScore: readinessScores.length ? Math.round(readinessScores.reduce((a, b) => a + b, 0) / readinessScores.length) : null,
+      strongest: [...evidenceDimensions].filter(d => d.score > 0).sort((a, b) => b.score - a.score).slice(0, 2),
+      priorities: [...evidenceDimensions].sort((a, b) => a.score - b.score).slice(0, 2),
+      tendency: 'Evidence from this playthrough',
+      tendencyStatement: report.scoreExplanation, confidence: report.legacyHistory ? 'Limited legacy record' : 'Traceable local decisions',
+      confidenceExplanation: 'These are practice scores, not a validated measure of job proficiency.',
+      nextChallenge: 'Review the lowest-scoring areas and the decision evidence with your first-line leader.'
+    };
     const decisionTimeline = buildDecisionTimeline(missionRecords);
-    const missionDisposition = determineMissionDisposition(missionConsequences);
+    const missionDisposition = worldState.missionOutcome || { terminated: false };
     const recognition = recommendTrainingRecognition(missionRecords, allProducts, missionConsequences, engagementProfile, missionDisposition);
 
     return (
@@ -2109,7 +1984,21 @@ Respond with only the debrief text, no JSON.`;
           <div className="bg-gradient-to-r from-amber-700 to-amber-800 rounded-lg p-8">
             <h1 className="text-4xl font-bold text-white">MISSION DEBRIEF</h1>
             <p className="text-amber-100 mt-2">{personalizedMissionLabel()} — After-Action Review</p>
+            <p className="text-amber-200 text-xs mt-2">Build {APP_VERSION} · Local engine</p>
           </div>
+
+          <section className="bg-green-950/40 border border-green-600 rounded-lg p-6">
+            <h2 className="text-2xl font-bold text-white">Share Your Performance Report</h2>
+            <p className="text-slate-200 mt-2">{report.status} · {report.overallScore}/100 practice score. Includes readiness results, products, decision evidence, and space for first-line-leader review.</p>
+            {!report.readinessComplete && <p className="text-amber-200 mt-2">Readiness checks were skipped or incomplete. The report records this explicitly.</p>}
+            <div className="flex flex-wrap gap-3 mt-4">
+              <button onClick={printPerformanceReport} className="bg-green-700 hover:bg-green-600 text-white px-5 py-3 rounded font-bold">Print / Save as PDF</button>
+              <button onClick={() => exportPerformanceReport('html')} className="bg-blue-700 hover:bg-blue-600 text-white px-5 py-3 rounded font-bold">Download Leader Report</button>
+              <button onClick={() => exportPerformanceReport('json')} className="bg-slate-700 hover:bg-slate-600 text-white px-5 py-3 rounded font-bold">Download Evidence JSON</button>
+            </div>
+            <p className="text-slate-400 text-xs mt-3">{report.provenance} Reports contain the text you entered; review them before sharing.</p>
+            {reportNotice && <p role="status" className="text-green-200 mt-3">{reportNotice}</p>}
+          </section>
 
           <div className="bg-blue-950/60 border-2 border-blue-600 rounded-lg p-5">
             <p className="text-blue-200 text-xs font-bold uppercase tracking-wide">AAR Learning Activities</p>
@@ -2146,8 +2035,8 @@ Respond with only the debrief text, no JSON.`;
                   <p className="text-white text-2xl font-bold mt-1">{allProducts.length}</p>
                 </div>
                 <div className="bg-slate-700/50 rounded p-4">
-                  <p className="text-slate-400 text-xs font-bold uppercase">Pre-Mission Readiness</p>
-                  <p className="text-white text-2xl font-bold mt-1">{engagementProfile.readinessScore || 'N/A'}</p>
+                  <p className="text-slate-400 text-xs font-bold uppercase">Readiness · First Attempt</p>
+                  <p className="text-white text-2xl font-bold mt-1">{engagementProfile.readinessScore ?? 'Not taken'}</p>
                 </div>
               </div>
 

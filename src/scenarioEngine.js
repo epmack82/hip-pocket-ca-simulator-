@@ -87,7 +87,7 @@ const SITE_CONTEXT = {
   irrigation: {
     stakeholders: ['irrigation cooperative chair', 'canal maintenance supervisor', 'smallholder farmer representative', 'district agricultural officer'],
     opening: 'A narrow canal cuts through dry fields toward the irrigation cooperative, its waterline visibly below the stain marks on the concrete. Several farmers have gathered near a locked control gate.',
-    welcome: 'The cooperative chair walks out to meet you carrying allocation sheets marked with recent corrections.',
+    welcome: 'The irrigation cooperative chair walks out to meet you carrying allocation sheets marked with recent corrections.',
     line: 'There is enough water on paper. The fields are telling a different story.',
     secondReason: 'has come because water allocations directly affect the next planting cycle'
   },
@@ -186,7 +186,8 @@ export function generateScenario(seed, { day = 1, duration = 3, role = 'sgt' } =
   const interpreterComplication = primaryInterpreterComplication ? complications[0] : null;
   const complexityMultiplier = 1 + (day / duration) * 0.4;
   const standard = `Assess the ${site[1]} using ASCOPE and PMESII-PT; distinguish facts, assumptions, and information gaps; validate reporting with more than one source; document civil vulnerabilities, local capabilities, and recommended follow-on actions.`;
-  const opening = `${siteContext.opening} ${siteContext.welcome}\n\n“${siteContext.line}” Nearby, the ${stakeholders[1]} ${siteContext.secondReason}. ${complications[0][1]}`;
+  const welcome = siteContext.welcome.replace(siteContext.stakeholders[0], stakeholders[0]);
+  const opening = `${siteContext.opening} ${welcome}\n\n“${siteContext.line}” Nearby, the ${stakeholders[1]} ${siteContext.secondReason}. ${complications[0][1]}`;
   return {
     id: normalized,
     seed: normalized,

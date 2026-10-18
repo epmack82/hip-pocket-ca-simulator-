@@ -84,7 +84,7 @@ const CONCEPTS = [
     label: 'Unapproved social event, entertainment, gift, or expenditure risk',
     severity: 'questionable',
     signals: [
-      /\b(?:set up|arrange|organize|host|throw|hold|plan|pay for|fund|sponsor)\b.{0,55}\b(?:party|rager|bash|blowout|celebration|reception|cookout|bbq|barbecue|banquet|night out|entertainment|entertain|outing|festival)/,
+      /\b(?:set up|arrange|organize|host|throw|hold|plan|pay for|fund|sponsor|entertain)\b.{0,55}\b(?:party|rager|bash|blowout|celebration|reception|cookout|bbq|barbecue|banquet|night out|entertainment|entertain|outing|festival)/,
       /\b(?:show (?:them|everyone)|give (?:them|everyone))\b.{0,35}\b(?:a good time|how americans party)/,
       /\b(?:gift|present|souvenir|token)\b.{0,45}\b(?:staff|official|leader|stakeholder|poc|community)/
     ],
@@ -122,7 +122,7 @@ const CONCEPTS = [
       /\b(?:i|we|our team)\b.{0,12}\b(?:promise|guarantee|commit)/,
       /\b(?:i|we|our team)(?: will|'ll)\b.{0,25}\b(?:fund|pay|build|repair|replace|buy|purchase|deliver|provide|donate|supply|give|get you)/
     ],
-    exemptions: [/\b(?:cannot|can't|will not|won't|do not|don't|never)\b.{0,16}\b(?:promise|guarantee|commit)/, ...AUTHORIZED_CONTEXT]
+    exemptions: [/\b(?:provide|deliver|send)\s+(?:an?\s+)?(?:update|report|brief)\b/, /\b(?:cannot|can't|will not|won't|do not|don't|never)\b.{0,16}\b(?:promise|guarantee|commit)/, ...AUTHORIZED_CONTEXT]
   },
   {
     id: 'coercion-concept',

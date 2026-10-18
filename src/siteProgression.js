@@ -1,12 +1,5 @@
-export const DIMENSIONS = [
-  ['rapport', 'Rapport'],
-  ['informationCollection', 'Information collection'],
-  ['validation', 'Validation'],
-  ['productQuality', 'Product quality'],
-  ['coordination', 'Coordination'],
-  ['initiative', 'Initiative'],
-  ['missionFocus', 'Mission focus']
-];
+import { SCORE_DIMENSIONS } from './worldUpdate';
+export const DIMENSIONS = SCORE_DIMENSIONS;
 
 const unique = items => [...new Set((items || []).filter(Boolean))];
 
@@ -73,9 +66,8 @@ export function siteStatusSummary(state, scenario = {}) {
   const gaps = state.informationGaps?.length || 0;
   const scored = DIMENSIONS
     .map(([key, label]) => ({ label, score: Number(state.dimensionScores?.[key]) || 0 }))
-    .filter(item => item.score > 0)
     .sort((a, b) => b.score - a.score);
-  const strongest = scored[0];
+  const strongest = scored[0]?.score > 0 ? scored[0] : null;
   const weakest = scored.length > 1 ? scored[scored.length - 1] : null;
   const fieldWork = `${state.actions.length} field action${state.actions.length === 1 ? '' : 's'} completed at ${scenario.location || 'this location'}; ${discoveries} finding${discoveries === 1 ? '' : 's'} recorded${products ? ` and ${products} product${products === 1 ? '' : 's'} completed` : ''}.`;
   const collection = gaps
@@ -88,6 +80,11 @@ export function siteStatusSummary(state, scenario = {}) {
 }
 
 export function buildValidationBrief(state = {}) {
+  if (state.engineVersion >= 2) return {
+    claims: (state.claims || []).map(claim => claim.source + ' reports: ' + claim.text),
+    gaps: state.informationGaps || [],
+    leads: (state.leads || []).filter(lead => lead.status !== 'completed')
+  };
   const discoveries = state.discoveries || [];
   const claimIndicators = /\b(?:says|claim|account|report|identif|indicat|disput|alleg|believ|according)\b/i;
   const claims = discoveries.filter(item => claimIndicators.test(item));

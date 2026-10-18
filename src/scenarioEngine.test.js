@@ -79,3 +79,10 @@ test('interpreter injects are occasional and always visibly cued in the opening 
     expect(scenario.narrative).toContain(scenario.interpreterInject.cue);
   });
 });
+
+test('the opening host matches the participant selected by the engine', () => {
+  for (let i = 0; i < 80; i++) {
+    const scenario = generateScenario('HOST-CONSISTENCY-' + i);
+    expect(scenario.narrative.split('\n\n')[0]).toContain(scenario.keyStakeholders[0]);
+  }
+});
