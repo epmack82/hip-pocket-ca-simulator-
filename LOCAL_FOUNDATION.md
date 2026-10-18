@@ -1,4 +1,12 @@
-# Local foundation preview — 4.4
+# Local foundation and mission-planning preview — 4.4.1
+
+## Mission planning update
+
+After the preparation and mission briefing, **Plan Your First Move** provides staging context and a choice among the mission's generated engagements. Cards contain preliminary reporting, mission relevance, and a listed contact; arrival details and undiscovered leads are not exposed. Players select a location, optionally record a rationale, and explicitly travel there.
+
+After conclusion, **Plan Your Next Move** shows only remaining locations, developed leads as planning context, and continuing consequences. Site order is not graded and adds no travel penalty. One site still uses one exercise day. Generated location IDs and story content remain stable; visits, saves, and reports follow the chosen order. Lead detours remain part of the existing in-site workflow, not extra selectable full-day engagements.
+
+**Your Purpose Here** now sits below the location title and outside the story. The arrival box no longer contains the appended instruction paragraph. Planning rationale is included in the AAR and both report exports without score credit. Older saves resume their current site and enter planning after its conclusion; no restart is required to continue them.
 
 ## What changed
 
@@ -42,7 +50,8 @@ All tests are local. UI integration tests replace fetch with a failing mock and 
 
 ### Verified preview checks
 
-- 196 tests pass in 26 suites; the CI production build passes with linting enabled.
+- 206 tests pass in 27 suites, including arbitrary site order, planning save/load, legacy save compatibility, skip/terminal paths, and ungraded rationale export.
+- The CI production build and a separate ESLint check pass with linting enabled. A browser check verified the new staging screen, selecting the school instead of the first listed site, the purpose section above arrival, and return to the remaining locations with a developed lead visible.
 - A browser playthrough reached the three-day debrief, restored a saved mission, displayed skipped readiness correctly, and triggered the leader-report download.
 - Named-speaker continuity is tested across clauses and turns; site-topic words such as "clinic service" do not select the clinic director.
 - The built JavaScript contains none of the old interpretation, evaluation, or debrief API endpoints.
@@ -51,14 +60,14 @@ These checks establish the tested behavior, not universal language understanding
 
 ## Retest checklist
 
-1. Start a new three-day mission. The temporary readiness skip must show as not taken in the AAR and report.
+1. Start a new three-day mission, review the planning screen, and choose a location other than the first listed. The temporary readiness skip must show as not taken in the AAR and report.
 2. Greet the host with interpreter support; ask a focused service question. Return to Location: the same scene must appear.
 3. Invite the second named stakeholder, including a small spelling error. Verify who answers and receives relationship credit.
 4. Exclude the interpreter, then ask another question. No invisible translation or new claim should be credited.
 5. Request permission for contact with a vulnerable group versus describing contact without it. Requests are not completed contact.
 6. Submit mixed courtesy and misconduct. Review the actual consequence, teammate reaction, persistent record, and later scenes.
 7. Claim a KLE report in prose, then submit its worksheet through Create a Product. Compare the receipt and completion.
-8. Save, reload, conclude the mission, and download the leader report. Compare grades to the AAR and inspect the decision evidence.
+8. Save and reload both at a location and on the planning screen. Conclude the mission and download the leader report. Compare grades to the AAR and inspect the decision evidence and ungraded route rationale.
 9. Flag unsupported or misleading interpretations and export the playtest report for a reviewed content/rule update. This is manual improvement, not automatic model training.
 
 ## Data and sharing

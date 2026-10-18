@@ -15,6 +15,8 @@ import { buildPlaytestReport, createPlaytestTurn, reportFilename, updateTurnFeed
 import { processUnifiedAction, outcomeFromTurn } from './unifiedActionPipeline';
 import { migrateWorldState, SCORE_DIMENSIONS } from './worldUpdate';
 import { APP_VERSION, buildPerformanceReport, performanceReportHtml, performanceDebrief, downloadFile } from './performanceReport';
+import { siteOrientation, remainingSites } from './missionPlanning';
+import MissionPlanning from './MissionPlanningScreen';
 
 // ===== SCENARIO DATA (MOVED OUTSIDE COMPONENT) =====
 // Retained temporarily for save migration reference; new missions use scenarioEngine.js.
@@ -114,6 +116,9 @@ export default function HipPocketV43() {
   const [scenarioLog, setScenarioLog] = useState([]);
   const [scenarioRecord, setScenarioRecord] = useState(null);
   const [missionRecords, setMissionRecords] = useState([]);
+  const [routeDecisions, setRouteDecisions] = useState([]);
+  const [planningSelection, setPlanningSelection] = useState('');
+  const [planningRationale, setPlanningRationale] = useState('');
   const [allProducts, setAllProducts] = useState([]);
   const [siteStates, setSiteStates] = useState({});
   const [currentSaveSlot, setCurrentSaveSlot] = useState(0); // Which slot is this game saved to
@@ -222,8 +227,7 @@ export default function HipPocketV43() {
   };
 
   function getComplexityMultiplier() {
-    const scenario = currentScenario();
-    return scenario.complexityMultiplier || 1.0;
+    return missionDuration ? 1 + (currentDay / missionDuration) * 0.4 : 1;
   }
 
   function getFinalDifficultyMultiplier() {
@@ -246,6 +250,9 @@ export default function HipPocketV43() {
       scenarioLog,
       scenarioRecord,
       missionRecords,
+      routeDecisions,
+      planningSelection,
+      planningRationale,
       allProducts,
       siteStates,
       activeLead,
@@ -308,6 +315,9 @@ export default function HipPocketV43() {
     setScenarioLog(save.scenarioLog);
     setScenarioRecord(save.scenarioRecord);
     setMissionRecords(save.missionRecords);
+    setRouteDecisions(save.routeDecisions || []);
+    setPlanningSelection(save.planningSelection || '');
+    setPlanningRationale(save.planningRationale || '');
     setAllProducts(save.allProducts || []);
     setSiteStates(save.siteStates || {});
     setActiveLead(save.activeLead || null);
@@ -324,7 +334,7 @@ export default function HipPocketV43() {
     setPendingAdvance(save.pendingAdvance || false);
     setLeadReturnPending(save.leadReturnPending || false);
     setCurrentSaveSlot(slotNumber);
-    setScreen(save.debrief ? 'debrief' : save.worldState?.missionOutcome?.terminated ? 'missionFailure' : save.pendingAdvance && save.lastOutcome ? 'outcomeDisplay' : 'scenarioScreen');
+    setScreen(save.debrief ? 'debrief' : save.worldState?.missionOutcome?.terminated ? 'missionFailure' : save.screen === 'missionPlanning' ? 'missionPlanning' : save.pendingAdvance && save.lastOutcome ? 'outcomeDisplay' : 'scenarioScreen');
   }
 
   function deleteSave(slotNumber) {
@@ -337,7 +347,7 @@ export default function HipPocketV43() {
   function getSaveDescription(save) {
     if (!save) return null;
     const scenario = save.missionScenarios?.[save.scenarioIndex];
-    const location = scenario?.location || 'Legacy mission';
+    const location = save.screen === 'missionPlanning' ? 'Mission planning — choose next location' : scenario?.location || 'Legacy mission';
     const role = save.playerRole.charAt(0).toUpperCase() + save.playerRole.slice(1);
     const mins = Math.floor((Date.now() - new Date(save.timestamp).getTime()) / 60000);
     const timeAgo = mins < 60 ? `${mins}m ago` : `${Math.floor(mins/60)}h ago`;
@@ -363,7 +373,7 @@ export default function HipPocketV43() {
       ...product, scenarioId: scenario.id, scenarioName: scenario.name
     }] : allProducts;
     const playtestTurn = createPlaytestTurn({
-      missionSeed, scenario, day: currentDay, locationNumber: scenarioIndex + 1,
+      missionSeed, scenario, day: currentDay, locationNumber: missionRecords.length + 1,
       actionNumber: advancedSiteState.actionCount, playerAction: turn.actionRecord.rawText,
       summaryLabel, interpretation: turn.interpretation, outcome: normalizedResult,
       relationshipChanges: deltas, siteState: advancedSiteState
@@ -490,9 +500,35 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
     else runEval('Depart without engaging at this location.', 'Departed without engaging', { kind: 'skip', isMoveOn: true });
   }
 
+  function openMissionPlanning(overrides = {}) {
+    setPlanningSelection('');
+    setPlanningRationale('');
+    setPendingAdvance(false);
+    setActiveLead(null);
+    setLeadReturnPending(false);
+    setScreen('missionPlanning');
+    saveGame(currentSaveSlot, { ...overrides, planningSelection: '', planningRationale: '', screen: 'missionPlanning', pendingAdvance: false, activeLead: null, leadReturnPending: false });
+  }
+
+  function travelToSelectedSite() {
+    const choice = remainingSites(missionScenarios, missionRecords).find(({ scenario }) => scenario.id === planningSelection);
+    if (!choice || worldState.missionOutcome?.terminated) return;
+    const decisions = [...routeDecisions, { scenarioId: choice.scenario.id, location: choice.scenario.location, scenarioName: choice.scenario.name,
+      day: currentDay, rationale: planningRationale.trim(), selectedAt: new Date().toISOString() }];
+    setRouteDecisions(decisions);
+    setScenarioIndex(choice.index);
+    setScenarioLog([]); setScenarioRecord(null); setLastOutcome(null); setLastDeltas({});
+    setActionText(''); setShowProductPanel(false); setError(null); setReportNotice('');
+    setPlanningSelection(''); setPlanningRationale('');
+    setScreen('scenarioScreen');
+    saveGame(currentSaveSlot, { routeDecisions: decisions, scenarioIndex: choice.index, scenarioLog: [], scenarioRecord: null,
+      lastOutcome: null, planningSelection: '', planningRationale: '', screen: 'scenarioScreen', pendingAdvance: false, activeLead: null, leadReturnPending: false });
+  }
+
   function finalizeScenario() {
     const scenario = currentScenario();
     const newRecord = {
+      scenarioId: scenario.id,
       scenarioName: scenario.name,
       location: scenario.location,
       hadrFocus: scenario.hadrFocus,
@@ -509,11 +545,9 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
     setScenarioRecord(null);
     setLastDeltas({});
 
-    if (currentDay < missionDuration) {
+    if (remainingSites(missionScenarios, updatedRecords).length) {
       setCurrentDay(currentDay + 1);
-      setScenarioIndex(scenarioIndex + 1);
-      setScreen('scenarioScreen');
-      saveGame(currentSaveSlot, { missionRecords: updatedRecords, currentDay: currentDay + 1, scenarioIndex: scenarioIndex + 1, scenarioLog: [], scenarioRecord: null, activeLead: null, screen: 'scenarioScreen', pendingAdvance: false });
+      openMissionPlanning({ missionRecords: updatedRecords, currentDay: currentDay + 1, scenarioLog: [], scenarioRecord: null, lastOutcome: null });
     } else {
       setScreen('debriefLoading');
       generateDebrief(updatedRecords);
@@ -523,6 +557,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
   function finishTerminatedMission() {
     const scenario = currentScenario();
     const terminalRecord = {
+      scenarioId: scenario.id,
       scenarioName: scenario.name,
       location: scenario.location,
       hadrFocus: scenario.hadrFocus,
@@ -589,7 +624,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
     return buildPerformanceReport({
       world: worldState, operator, playerRole, sessionId, missionSeed,
       missionLabel: personalizedMissionLabel(), startedAt: sessionStartedAt, completedAt,
-      plannedLocations: missionDuration, missionRecords: records, readinessResults, products: allProducts
+      plannedLocations: missionDuration, missionRecords: records, readinessResults, products: allProducts, routeDecisions
     });
   }
 
@@ -634,6 +669,9 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
     setScenarioLog([]);
     setScenarioRecord(null);
     setMissionRecords([]);
+    setRouteDecisions([]);
+    setPlanningSelection('');
+    setPlanningRationale('');
     setAllProducts([]);
     setSiteStates({});
     setRelationships({
@@ -1344,7 +1382,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
             <div className="border-t border-slate-700 pt-4">
               <h3 className="text-slate-300 text-xs font-bold uppercase tracking-wide mb-2">Mission</h3>
               <p className="text-white">Assess {personalizedRegion()}'s civil environment for HADR readiness across {missionDuration} days of engagement.</p>
-              <p className="text-slate-400 text-sm mt-2">Your route is randomized but coverage-balanced. The scheduler avoids immediate repetition, introduces unused sites and mission activities first, and distributes unavoidable repeats across longer deployments. Difficulty escalates as the mission progresses.</p>
+              <p className="text-slate-400 text-sm mt-2">Your available locations are generated for varied training exposure. You choose the order of visits after reviewing preliminary reporting. On longer deployments, the same type of site may appear in different engagements. Choosing a destination is not graded and does not add a travel penalty.</p>
             </div>
 
             <div className="border-t border-slate-700 pt-4">
@@ -1364,10 +1402,10 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
           </div>
 
           <button
-            onClick={() => setScreen('scenarioScreen')}
+            onClick={() => openMissionPlanning()}
             className="w-full bg-gradient-to-r from-green-600 to-green-700 hover:from-green-500 hover:to-green-600 text-white px-8 py-4 rounded-lg font-bold text-lg"
           >
-            Deploy <ChevronRight className="inline ml-2 w-5 h-5" />
+            Plan Your First Move <ChevronRight className="inline ml-2 w-5 h-5" />
           </button>
 
           <button
@@ -1379,6 +1417,12 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
         </div>
       </div>
     );
+  }
+
+  if (screen === 'missionPlanning') {
+    return <MissionPlanning scenarios={missionScenarios} records={missionRecords} sites={siteStates} consequences={missionConsequences}
+      day={currentDay} region={personalizedRegion()} missionLabel={personalizedMissionLabel()} selected={planningSelection} rationale={planningRationale}
+      onSelect={setPlanningSelection} onRationale={setPlanningRationale} onTravel={travelToSelectedSite} onSave={saveAndExit} />;
   }
 
   // ===== RENDER: PLAYABLE LEAD SCENE =====
@@ -1443,6 +1487,8 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
     const validationBrief = buildValidationBrief(siteState);
     const showHints = playerRole === 'specialist' || playerRole === 'canco';
     const diffMult = getFinalDifficultyMultiplier().toFixed(2);
+    const orientation = siteOrientation(scenario);
+    const routeChoice = routeDecisions.find(choice => choice.scenarioId === scenario.id);
 
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-8">
@@ -1450,7 +1496,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
         <div className="max-w-4xl mx-auto">
           <div className="flex justify-between items-center mb-6">
             <div>
-              <p className="text-blue-300 text-sm">Day {currentDay} of {missionDuration} • Location {scenarioIndex + 1} of {missionScenarios.length}</p>
+              <p className="text-blue-300 text-sm">Day {currentDay} of {missionDuration} • Visit {missionRecords.length + 1} of {missionScenarios.length}</p>
               <p className="text-slate-400 text-xs mt-1">Mission seed: {missionSeed}</p>
               <h1 className="text-4xl font-bold text-white mt-1">{scenario.name}</h1>
             </div>
@@ -1467,6 +1513,13 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
           </div>
 
           <ErrorBanner />
+
+          <section aria-labelledby="site-purpose" className="mb-6 border-l-4 border-cyan-400 bg-slate-800/60 rounded-r-lg px-6 py-5">
+            <h2 id="site-purpose" className="text-cyan-200 text-sm font-bold uppercase tracking-wide">Your Purpose Here</h2>
+            <p className="text-white mt-2 leading-relaxed">{orientation.purpose} Distinguish reported concerns from verified findings and identify appropriate follow-up.</p>
+            {routeChoice && <p className="text-slate-300 text-sm mt-2">You chose this location for Day {routeChoice.day}.{routeChoice.rationale ? ` Your reasoning: ${routeChoice.rationale}` : ''}</p>}
+            <p className="text-slate-400 text-sm mt-3">Read the scene, then describe what your team says or does. Use Create a Product to submit documents. Conclude the site when you are ready to plan your next move.</p>
+          </section>
 
           <div className="flex flex-col">
           {missionConsequences.length > 0 && (
@@ -1541,8 +1594,8 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
           )}
 
           <div className="order-1 bg-gradient-to-br from-slate-800 to-blue-950/40 rounded-lg p-8 border-2 border-blue-500 mb-6 text-slate-100 leading-relaxed shadow-lg shadow-blue-950/30">
-            <p className="text-blue-300 text-sm font-bold uppercase tracking-wide mb-3">{hasProgress ? 'Continuity Scene — The Story Continues' : 'Arrival — Your Mission Begins'}</p>
-            <p className="whitespace-pre-wrap text-lg leading-8">{hasProgress ? currentContinuityNarrative(siteState, scenario) : scenario.narrative}</p>
+            <p className="text-blue-300 text-sm font-bold uppercase tracking-wide mb-3">{hasProgress ? 'Continuity Scene — The Story Continues' : routeChoice ? 'Arrival — At Your Chosen Location' : 'Arrival — At the Location'}</p>
+            <p className="whitespace-pre-wrap text-lg leading-8">{hasProgress ? currentContinuityNarrative(siteState, scenario) : orientation.arrival}</p>
           </div>
 
           {hasProgress && (
@@ -2114,6 +2167,15 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
                 <p className="text-slate-100 leading-relaxed whitespace-pre-wrap">{debrief}</p>
               </div>
             </div>
+
+            {routeDecisions.length > 0 && <section className="border-t border-slate-700 pt-6" aria-labelledby="route-review">
+              <h2 id="route-review" className="text-2xl font-bold text-white mb-2">ROUTE CHOICES</h2>
+              <p className="text-slate-400 text-sm mb-4">Your order of visits and optional reasoning are recorded for discussion, not scored.</p>
+              <ol className="space-y-3">{routeDecisions.map(choice => <li key={choice.scenarioId} className="bg-slate-700/50 rounded p-4">
+                <p className="text-white font-semibold">Day {choice.day}: {choice.location}</p>
+                <p className="text-slate-300 text-sm mt-1">{choice.rationale || 'No planning rationale entered (optional).'}</p>
+              </li>)}</ol>
+            </section>}
 
             <div id="awards-practice" className="border-t border-slate-700 pt-6 scroll-mt-6">
               <h2 className="text-2xl font-bold text-white mb-4">TRAINING RECOGNITION RECOMMENDATION</h2>

@@ -19,4 +19,6 @@ const server = http.createServer((request, response) => {
     else fs.createReadStream(target).pipe(response);
   } catch { response.writeHead(400); response.end('Invalid request'); }
 });
-server.listen(4173, '127.0.0.1', () => console.log('Hip Pocket local preview: http://127.0.0.1:4173 — Ctrl+C to stop.'));
+const port = Number(process.env.PORT || 4173);
+if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Use an unprivileged local preview PORT (1024–65535).');
+server.listen(port, '127.0.0.1', () => console.log(`Hip Pocket local preview: http://127.0.0.1:${port} — Ctrl+C to stop.`));

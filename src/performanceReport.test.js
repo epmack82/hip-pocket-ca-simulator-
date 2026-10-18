@@ -33,3 +33,15 @@ test('leader report uses authoritative grades and escaped action evidence', () =
   expect(html).toContain('First-line-leader review');
   expect(html).toContain('not independently authenticated');
 });
+
+test('route rationale is exported safely without awarding grade credit', () => {
+  const routeDecisions = [{ scenarioId: 'school', location: 'School', day: 1, rationale: '<script>test</script>' }];
+  const report = buildPerformanceReport({ routeDecisions });
+  expect(report.overallScore).toBe(0);
+  expect(report.actionCount).toBe(0);
+  expect(report.routeDecisions[0].rationale).toBe('<script>test</script>');
+  const html = performanceReportHtml(report);
+  expect(html).toContain('Route choices and planning rationale');
+  expect(html).toContain('&lt;script&gt;test&lt;/script&gt;');
+  expect(html).not.toContain('<script>');
+});

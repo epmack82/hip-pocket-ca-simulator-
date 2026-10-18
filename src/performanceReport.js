@@ -1,6 +1,6 @@
 import { RUBRIC_VERSION, SCORE_DIMENSIONS } from './worldUpdate';
 
-export const APP_VERSION = '4.4.0-foundation-preview';
+export const APP_VERSION = '4.4.1-planning-preview';
 const average = values => values.length ? Math.round(values.reduce((sum, n) => sum + n, 0) / values.length) : 0;
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -37,6 +37,7 @@ export function buildPerformanceReport(input = {}) {
     scoreExplanation: 'Practice rubric: evidence earns category credit once per rule and participant at a site; recorded mistakes can reduce it. Scores are bounded 0–100 and averaged across visited sites. Unobserved categories earn no credit. Worksheet completion is not a factual-accuracy grade. Completion and proficiency are separate; leader review determines follow-up.',
     plannedLocations: Number(input.plannedLocations) || 0, completedLocations: (input.missionRecords || []).length,
     actionCount: history.length, legacyHistory: Boolean(world.legacyHistory),
+    routeDecisions: (input.routeDecisions || []).map(choice => ({ scenarioId: choice.scenarioId, location: choice.location, scenarioName: choice.scenarioName, day: choice.day, rationale: choice.rationale || '', selectedAt: choice.selectedAt })),
     products: (input.products || []).map(p => ({ name: p.name, scenarioName: p.scenarioName, completionScore: p.completionScore, completionPercent: p.completionPercent, recipient: p.recipient, content: p.content })),
     conditions: world.persistentConditions || [], relationships: world.relationships || {},
     decisions: history.map(update => ({ actionId: update.actionRecordId, scenarioId: update.scenarioId, action: records.find(r => r.id === update.actionRecordId)?.rawText || 'Legacy action', classification: update.classification, severity: update.severity, response: [...update.effects, ...update.teamReactions, ...update.localReactions].join('\n\n'), coaching: update.coaching, scoreChanges: update.scoreChanges, relationshipChanges: update.relationshipChanges })),
@@ -67,6 +68,7 @@ export function performanceReportHtml(report) {
     <p class="note">${escape(report.scoreExplanation)}</p>${report.legacyHistory ? '<p>Legacy save: earlier actions lack the new detailed evidence record. Review those limitations before comparing grades.</p>' : ''}
     <table><thead><tr><th>Dimension</th><th>Score / 100</th></tr></thead><tbody>${rows(report.dimensions, ['label', 'score'])}</tbody></table>
     <h2>Readiness checks</h2><table><thead><tr><th>Block</th><th>Status</th><th>Attempts</th><th>First score</th><th>Final score</th></tr></thead><tbody>${rows(report.readiness, ['label', 'status', 'attempts', 'firstAttemptScore', 'finalScore'])}</tbody></table>
+    <h2>Route choices and planning rationale</h2><p class="note">Location order and optional reasoning are recorded for discussion only, not scored.</p>${report.routeDecisions?.length ? '<table><thead><tr><th>Day</th><th>Location</th><th>Reasoning (optional)</th></tr></thead><tbody>' + rows(report.routeDecisions.map(choice => ({ ...choice, rationale: choice.rationale || 'Not entered' })), ['day', 'location', 'rationale']) + '</tbody></table>' : '<p>No explicit route choices were recorded (for example, a mission begun before the planning update).</p>'}
     <h2>Submitted products</h2>${report.products.length ? report.products.map(p => '<article><h3>' + escape(p.name) + '</h3><p>Worksheet completion: ' + escape(p.completionScore) + '/100 · Recipient: ' + escape(p.recipient) + '</p><p>' + escape(p.content) + '</p></article>').join('') : '<p>No worksheets submitted.</p>'}
     <h2>Persistent consequences</h2>${report.conditions.length ? report.conditions.map(c => '<p><strong>' + escape(c.title) + ' — ' + escape(c.status) + '</strong><br>' + escape((c.persistentEffects || []).join(' ')) + '</p>').join('') : '<p>No conduct conditions recorded.</p>'}
     <h2>Decision evidence</h2>${evidence || '<p>No new-engine actions recorded.</p>'}
