@@ -1,0 +1,10 @@
+.classroom-layout{display:grid;grid-template-columns:minmax(260px,.85fr) minmax(300px,1.3fr);gap:24px}
+.classroom-controls label{display:block;font-weight:650;font-size:.9rem}
+.classroom-controls select{width:100%;padding:12px;background:#0f2030;color:#eef5fb;border:1px solid #6b8296;border-radius:8px;margin:10px 0 20px;font:inherit}
+.classroom-controls select:focus-visible{outline:3px solid #f4cf77;outline-offset:4px}
+.classroom-brief{background:linear-gradient(145deg,#183c47,#192b3d)}
+.classroom-stats{display:flex;gap:20px;margin:24px 0;padding:18px 0;border-top:1px solid #517381;border-bottom:1px solid #517381}
+.classroom-stats div{flex:1}.classroom-stats strong{display:block;color:#98e5cc;font-size:2rem}.classroom-stats span{font-size:.8rem;color:#c5d4df}
+.classroom-shell button:disabled{opacity:.45;cursor:not-allowed}
+.classroom-shell iframe{display:block;width:100%;height:75vh;border:1px solid #6b8296;background:white;border-radius:8px;margin-top:22px}
+@media(max-width:780px){.classroom-layout{grid-template-columns:1fr}.classroom-stats{gap:12px}}

@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { ChevronRight, Send, Package, ArrowRight, Loader2, AlertCircle, RotateCcw, Trash2 } from 'lucide-react';
 import { createMissionSeed, generateMission, summarizeMissionCoverage } from './scenarioEngine';
 import { buildValidationBrief, createSiteState, siteStatusSummary } from './siteProgression';
-import { getProductWorksheet } from './productTemplates';
+import MissionProductDialog from './MissionProductDialog';
+import SubmissionReceipt from './SubmissionReceipt';
 import { getKnowledgeQuestions, gradeKnowledgeQuestions } from './knowledgeChecks';
 import { teamHuddleNarrative } from './teamNarrative';
 import { firstAvailableSaveSlot, saveConfirmation } from './saveManager';
@@ -17,6 +18,14 @@ import { migrateWorldState, SCORE_DIMENSIONS } from './worldUpdate';
 import { APP_VERSION, buildPerformanceReport, performanceReportHtml, performanceDebrief, downloadFile } from './performanceReport';
 import { siteOrientation, remainingSites } from './missionPlanning';
 import MissionPlanning from './MissionPlanningScreen';
+import StudyPractice from './StudyPracticeScreen';
+import ClassroomOpordScreen from './ClassroomOpordScreen';
+import CommandContinuityPanel, { CommandArrivalNote } from './CommandContinuityPanel';
+import { submitCommandBrief } from './commandContinuity';
+import { CAMPAIGNS, campaignDay, campaignTradeoffs, emptyChiefPlan } from './campaign';
+import ChiefPlanningScreen from './ChiefPlanningScreen';
+import MarketScenePanel, { ConversationPanel, FollowUpNotes } from './MarketScenePanel';
+import { isMarket } from './marketScene';
 
 // ===== SCENARIO DATA (MOVED OUTSIDE COMPONENT) =====
 // Retained temporarily for save migration reference; new missions use scenarioEngine.js.
@@ -106,6 +115,8 @@ export default function HipPocketV43() {
   const [operator, setOperator] = useState({ name: '', callsign: '' });
   const [playerRole, setPlayerRole] = useState(null); // 'specialist'|'canco'|'sgt'|'chief'
   const [missionDuration, setMissionDuration] = useState(null); // 3|7|14|29
+  const [visitLimit, setVisitLimit] = useState(3);
+  const [chiefPlan, setChiefPlan] = useState(emptyChiefPlan);
   const [missionSeed, setMissionSeed] = useState('');
   const [trainingPersonalization, setTrainingPersonalization] = useState(DEFAULT_TRAINING_PERSONALIZATION);
   const [saveSlots, setSaveSlots] = useState([null, null, null, null, null]); // Load from localStorage
@@ -135,10 +146,6 @@ export default function HipPocketV43() {
   // ===== UI STATE =====
   const [actionText, setActionText] = useState('');
   const [showProductPanel, setShowProductPanel] = useState(false);
-  const [selectedProductType, setSelectedProductType] = useState(null);
-  const [customProductMode, setCustomProductMode] = useState(false);
-  const [customProductText, setCustomProductText] = useState('');
-  const [productDetails, setProductDetails] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -191,14 +198,12 @@ export default function HipPocketV43() {
   // ===== SEEDED OFFLINE SCENARIO ENGINE =====
   const [missionScenarios, setMissionScenarios] = useState([]);
   
-  useEffect(() => {
-    if (playerRole && missionDuration && missionSeed) {
-      setMissionScenarios(generateMission({ seed: missionSeed, days: missionDuration, role: playerRole }));
-    }
-  }, [playerRole, missionDuration, missionSeed]);
+  // Generate only when explicitly starting a mission. Loading a save must not
+  // regenerate its destination pool or invalidate recorded site IDs.
 
   function currentScenario() {
-    return missionScenarios[scenarioIndex] || {};
+    const scenario = missionScenarios[scenarioIndex];
+    return scenario ? { ...scenario, day: currentDay } : {};
   }
 
   function personalizedRegion() {
@@ -242,6 +247,8 @@ export default function HipPocketV43() {
       operator,
       playerRole,
       missionDuration,
+      visitLimit,
+      chiefPlan,
       missionSeed,
       trainingPersonalization,
       missionScenarios,
@@ -307,9 +314,11 @@ export default function HipPocketV43() {
     setOperator(save.operator);
     setPlayerRole(save.playerRole);
     setMissionDuration(save.missionDuration);
+    setVisitLimit(save.visitLimit || save.missionScenarios?.length || save.missionDuration);
+    setChiefPlan(save.chiefPlan || emptyChiefPlan());
     setMissionSeed(save.missionSeed || `LEGACY-${new Date(save.timestamp).getTime()}`);
     setTrainingPersonalization(save.trainingPersonalization || DEFAULT_TRAINING_PERSONALIZATION);
-    if (save.missionScenarios) setMissionScenarios(save.missionScenarios);
+    setMissionScenarios(save.missionScenarios || generateMission({ seed: save.missionSeed || `LEGACY-${new Date(save.timestamp).getTime()}`, days: save.missionDuration, role: save.playerRole }));
     setCurrentDay(save.currentDay);
     setScenarioIndex(save.scenarioIndex);
     setScenarioLog(save.scenarioLog);
@@ -334,7 +343,8 @@ export default function HipPocketV43() {
     setPendingAdvance(save.pendingAdvance || false);
     setLeadReturnPending(save.leadReturnPending || false);
     setCurrentSaveSlot(slotNumber);
-    setScreen(save.debrief ? 'debrief' : save.worldState?.missionOutcome?.terminated ? 'missionFailure' : save.screen === 'missionPlanning' ? 'missionPlanning' : save.pendingAdvance && save.lastOutcome ? 'outcomeDisplay' : 'scenarioScreen');
+    const preparation = ['chiefPlanning', 'annexKBriefing', 'teamHuddle', 'readinessCheck', 'missionBriefing', 'missionPlanning'];
+    setScreen(save.debrief ? 'debrief' : save.worldState?.missionOutcome?.terminated ? 'missionFailure' : preparation.includes(save.screen) ? save.screen : save.lastOutcome && ['outcomeDisplay', 'productDisplay'].includes(save.screen) ? save.screen : save.pendingAdvance && save.lastOutcome ? 'outcomeDisplay' : 'scenarioScreen');
   }
 
   function deleteSave(slotNumber) {
@@ -415,14 +425,16 @@ export default function HipPocketV43() {
   function saveTesterFeedback() {
     const latest = playtestTurns[playtestTurns.length - 1];
     if (!latest) return;
-    setPlaytestTurns(prev => updateTurnFeedback(prev, latest.id, {
+    const updated = updateTurnFeedback(playtestTurns, latest.id, {
       inaccurate: true,
       categories: testerFeedback.categories,
       expectedResponse: testerFeedback.expectedResponse.trim(),
       notes: testerFeedback.notes.trim()
-    }));
+    });
+    setPlaytestTurns(updated);
+    saveGame(currentSaveSlot, { playtestTurns: updated });
     setTesterFeedbackOpen(false);
-    setReportNotice('This response has been flagged and will be included in the exported report.');
+    setReportNotice('Flag saved in this browser and mission save. Nothing was sent. Download the playtest report below and share it with your administrator.');
   }
 
   function exportPlaytestReport() {
@@ -456,7 +468,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
       const world = { ...worldState, sites: siteStates, relationships };
       const turn = processUnifiedAction({
         id: (sessionId || missionSeed) + '-turn-' + ((world.history || []).length + 1),
-        rawText, kind: opts.kind || 'action', productName: opts.productName,
+        rawText, kind: opts.kind || 'action', productName: opts.productName, missionProduct: opts.missionProduct,
         seed: missionSeed, scenarioId: scenario.id, turnNumber: (world.history || []).length + 1,
         scenario: activeScenario, activeLead: opts.kind === 'lead' ? activeLead : null, stakeholders: activeScenario.keyStakeholders,
         location: activeScenario.location, siteType: scenario.siteType,
@@ -469,8 +481,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
       setPendingAdvance(Boolean(opts.isMoveOn));
       setLeadReturnPending(opts.kind === 'lead');
       setScreen(nextScreen);
-      setActionText(''); setShowProductPanel(false); setSelectedProductType(null);
-      setCustomProductMode(false); setCustomProductText(''); setProductDetails('');
+      setActionText(''); setShowProductPanel(false);
       saveGame(currentSaveSlot, { ...applied.save, screen: nextScreen, pendingAdvance: Boolean(opts.isMoveOn), leadReturnPending: opts.kind === 'lead' });
     } catch (e) {
       setError(e.message || 'The local action could not be recorded. Your previous state is unchanged.');
@@ -489,9 +500,16 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
     if (activeLead && actionText.trim()) runEval(actionText.trim(), actionText.trim(), { kind: 'lead' });
   }
 
-  function submitProduct() {
-    const productType = customProductMode ? customProductText.trim() : selectedProductType;
-    if (productType && productDetails.trim()) runEval(productDetails.trim(), 'Submitted ' + productType, { kind: 'product', productName: productType });
+  function submitProduct(brief) {
+    const content = `Product: ${brief.name}\nRecipient: ${brief.recipient.trim()}\nPurpose: ${brief.purpose.trim()}\nKey finding and uncertainty: ${brief.keyFinding.trim()}`;
+    runEval(content, 'Submitted ' + brief.name, { kind: 'product', productName: brief.name, missionProduct: brief });
+  }
+
+  function recordCommandBrief(draft, scenarioId) {
+    const nextWorld = submitCommandBrief({ world: worldState, scenarios: missionScenarios, records: missionRecords, scenarioId, draft, day: currentDay });
+    // Persist before acknowledging the brief; preserve existing field evidence and scores.
+    saveGame(currentSaveSlot, { worldState: nextWorld });
+    setWorldState(nextWorld);
   }
 
   function moveOn() {
@@ -511,6 +529,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
   }
 
   function travelToSelectedSite() {
+    if (missionRecords.length >= visitLimit) return;
     const choice = remainingSites(missionScenarios, missionRecords).find(({ scenario }) => scenario.id === planningSelection);
     if (!choice || worldState.missionOutcome?.terminated) return;
     const decisions = [...routeDecisions, { scenarioId: choice.scenario.id, location: choice.scenario.location, scenarioName: choice.scenario.name,
@@ -545,9 +564,10 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
     setScenarioRecord(null);
     setLastDeltas({});
 
-    if (remainingSites(missionScenarios, updatedRecords).length) {
-      setCurrentDay(currentDay + 1);
-      openMissionPlanning({ missionRecords: updatedRecords, currentDay: currentDay + 1, scenarioLog: [], scenarioRecord: null, lastOutcome: null });
+    if (updatedRecords.length < visitLimit && remainingSites(missionScenarios, updatedRecords).length) {
+      const nextDay = campaignDay(missionDuration, visitLimit, updatedRecords.length);
+      setCurrentDay(nextDay);
+      openMissionPlanning({ missionRecords: updatedRecords, currentDay: nextDay, scenarioLog: [], scenarioRecord: null, lastOutcome: null });
     } else {
       setScreen('debriefLoading');
       generateDebrief(updatedRecords);
@@ -608,15 +628,16 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
   function continueFromOutcome() {
     // By this point React has committed the evaluation and location progress,
     // so this save includes the action the trainee just completed.
-    saveGame(currentSaveSlot);
     if (leadReturnPending) {
       setLeadReturnPending(false);
       setActiveLead(null);
       setScreen('scenarioScreen');
+      saveGame(currentSaveSlot, { screen: 'scenarioScreen', leadReturnPending: false, activeLead: null });
     } else if (pendingAdvance) {
       finalizeScenario();
     } else {
       setScreen('scenarioScreen');
+      saveGame(currentSaveSlot, { screen: 'scenarioScreen' });
     }
   }
 
@@ -624,7 +645,8 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
     return buildPerformanceReport({
       world: worldState, operator, playerRole, sessionId, missionSeed,
       missionLabel: personalizedMissionLabel(), startedAt: sessionStartedAt, completedAt,
-      plannedLocations: missionDuration, missionRecords: records, readinessResults, products: allProducts, routeDecisions
+      plannedLocations: visitLimit, missionRecords: records, readinessResults, products: allProducts, routeDecisions,
+      unvisitedDestinations: campaignTradeoffs(missionScenarios, records), chiefPlan, missionScenarios
     });
   }
 
@@ -663,6 +685,9 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
     setOperator({ name: '', callsign: '' });
     setPlayerRole(null);
     setMissionDuration(null);
+    setVisitLimit(3);
+    setChiefPlan(emptyChiefPlan());
+    setMissionScenarios([]);
     setTrainingPersonalization(DEFAULT_TRAINING_PERSONALIZATION);
     setCurrentDay(1);
     setScenarioIndex(0);
@@ -684,10 +709,6 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
     });
     setActionText('');
     setShowProductPanel(false);
-    setSelectedProductType(null);
-    setCustomProductMode(false);
-    setCustomProductText('');
-    setProductDetails('');
     setLastOutcome(null);
     setLastDeltas({});
     setPendingAdvance(false);
@@ -746,6 +767,16 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
   };
 
   // ===== RENDER: LOAD OR NEW GAME =====
+  if (screen === 'chiefPlanning') {
+    return <ChiefPlanningScreen plan={chiefPlan} onChange={setChiefPlan} visits={visitLimit} destinations={missionScenarios.length} onSave={saveAndExit}
+      onContinue={() => { const plan = { ...chiefPlan, completed: true }; setChiefPlan(plan); setScreen('annexKBriefing'); saveGame(currentSaveSlot, { chiefPlan: plan, screen: 'annexKBriefing' }); }} />;
+  }
+  if (screen === 'studyPractice') {
+    return <StudyPractice onExit={() => setScreen('loadOrNew')} />;
+  }
+  if (screen === 'classroomOpord') {
+    return <ClassroomOpordScreen onExit={() => setScreen('loadOrNew')} />;
+  }
   if (screen === 'loadOrNew') {
     const hasSaves = saveSlots.some(s => s !== null);
     return (
@@ -754,8 +785,20 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
           <div className="text-center mb-12">
             <h1 className="text-6xl font-bold text-white mb-3">Hip Pocket</h1>
             <p className="text-blue-200 text-xl mb-2">Civil Affairs Training · {APP_VERSION}</p>
-            <p className="text-slate-400">Save & load • Difficulty scaling • 3/7/14/29-day missions</p>
+            <p className="text-slate-400">Save & load • Role-based difficulty • Drill weekend, annual training, deployment</p>
           </div>
+
+          <section className="bg-slate-800 rounded-lg p-6 border border-teal-700 mb-8">
+            <h2 className="text-2xl font-bold text-white mb-2">Study & Staff Practice</h2>
+            <p className="text-slate-300 mb-4">Practice engagement preparation, reporting and civil assessment without starting a mission. Save your work and export a report for leader review.</p>
+            <button onClick={() => setScreen('studyPractice')} className="bg-teal-700 hover:bg-teal-600 text-white px-6 py-3 rounded-lg font-bold">Open Study & Staff Practice</button>
+          </section>
+
+          <section className="bg-slate-800 rounded-lg p-6 border border-sky-700 mb-8">
+            <h2 className="text-2xl font-bold text-white mb-2">Classroom OPORD Exercise</h2>
+            <p className="text-slate-300 mb-4">Generate a fictional staff exercise for your class: mission analysis, CA contributions across phases, and three-team prioritization. Print student worksheets and separate draft facilitator notes.</p>
+            <button onClick={() => setScreen('classroomOpord')} className="bg-sky-700 hover:bg-sky-600 text-white px-6 py-3 rounded-lg font-bold">Open Classroom OPORD Exercise</button>
+          </section>
 
           {saveNotice && (
             <div className={`rounded-lg p-4 border mb-6 ${
@@ -878,25 +921,25 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
       {
         id: 'specialist',
         name: 'CA Specialist',
-        desc: 'Junior role. Optional next-action ideas and additional guidance.',
+        desc: 'Guided difficulty. Optional next-action ideas and additional guidance.',
         difficulty: '★☆☆☆'
       },
       {
         id: 'canco',
         name: 'CANCO',
-        desc: 'Mid-level NCO. Some guidance. The same evidence rubric applies.',
+        desc: 'Intermediate difficulty. Some guidance. The same evidence rubric applies.',
         difficulty: '★★☆☆'
       },
       {
         id: 'sgt',
         name: 'Team Sergeant',
-        desc: 'Senior NCO. Minimal hints and responsibility for team performance.',
+        desc: 'Advanced difficulty. Minimal hints and responsibility for team performance.',
         difficulty: '★★★☆'
       },
       {
         id: 'chief',
         name: 'Team Chief',
-        desc: 'Team leader. No hints. Full responsibility; the same evidence rubric applies.',
+        desc: 'Command difficulty. Begin with a pre-deployment planning rehearsal, then lead without hints. The same evidence rubric applies.',
         difficulty: '★★★★'
       }
     ];
@@ -905,8 +948,8 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-8">
         <div className="max-w-3xl mx-auto">
           <div className="bg-gradient-to-r from-purple-700 to-purple-800 rounded-lg p-8 mb-8">
-            <h1 className="text-4xl font-bold text-white">SELECT YOUR ROLE</h1>
-            <p className="text-purple-100 mt-2">Choose your role and level of guidance</p>
+            <h1 className="text-4xl font-bold text-white">SELECT YOUR ROLE & DIFFICULTY</h1>
+            <p className="text-purple-100 mt-2">Your role determines guidance, scenario complexity and leadership responsibility—not a different standard for what is true.</p>
           </div>
 
           <div className="space-y-3 mb-6">
@@ -941,19 +984,14 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
 
   // ===== RENDER: MISSION SELECTION =====
   if (screen === 'missionSelection') {
-    const durations = [
-      { days: 3, name: '3-Day Mission', desc: 'Short orientation. ~3 hours playtime. Good for quick training.' },
-      { days: 7, name: '7-Day Mission', desc: 'Standard deployment. ~8 hours playtime. Full civil assessment training.' },
-      { days: 14, name: '14-Day Mission', desc: 'Extended AO prep. ~16 hours playtime. Advanced assessment cycle.' },
-      { days: 29, name: '29-Day Mission', desc: 'Full civil preparation. ~32 hours playtime. Comprehensive CA immersion.' }
-    ];
+    const durations = CAMPAIGNS;
 
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-8">
         <div className="max-w-3xl mx-auto">
           <div className="bg-gradient-to-r from-indigo-700 to-indigo-800 rounded-lg p-8 mb-8">
             <h1 className="text-4xl font-bold text-white">SELECT MISSION DURATION</h1>
-            <p className="text-indigo-100 mt-2">Choose how long your deployment lasts</p>
+            <p className="text-indigo-100 mt-2">Choose a simulated training period—not hours of required gameplay. Save and resume whenever you need.</p>
           </div>
 
           <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
@@ -1047,8 +1085,12 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
               <button
                 key={dur.days}
                 onClick={() => {
-                  setMissionSeed(createMissionSeed());
+                  const seed = createMissionSeed();
+                  setMissionSeed(seed);
                   setMissionDuration(dur.days);
+                  setVisitLimit(dur.visits);
+                  setChiefPlan(emptyChiefPlan());
+                  setMissionScenarios(generateMission({ seed, days: dur.days, role: playerRole, candidateCount: dur.destinations, includeMarket: true }));
                   setCurrentDay(1);
                   setScenarioIndex(0);
                   setScenarioLog([]);
@@ -1058,13 +1100,13 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
                   setSiteStates({});
                   setPlaytestTurns([]);
                   setReportNotice('');
-                  setScreen('annexKBriefing');
+                  setScreen(playerRole === 'chief' ? 'chiefPlanning' : 'annexKBriefing');
                 }}
                 className="w-full bg-slate-800 hover:bg-slate-700 rounded-lg p-6 border border-slate-700 hover:border-indigo-600 text-left transition"
               >
                 <div className="flex items-start justify-between mb-2">
                   <h3 className="text-xl font-bold text-white">{dur.name}</h3>
-                  <span className="text-slate-400 text-sm">{dur.days} days</span>
+                  <span className="text-slate-400 text-sm">{dur.days} simulated days · {dur.visits} visits</span>
                 </div>
                 <p className="text-slate-300 text-sm">{dur.desc}</p>
               </button>
@@ -1359,7 +1401,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
         <div className="max-w-4xl mx-auto space-y-6">
           <div className="bg-gradient-to-r from-green-700 to-green-800 rounded-lg p-8">
             <h1 className="text-4xl font-bold text-white">MISSION BRIEFING</h1>
-            <p className="text-green-100 mt-2">{personalizedMissionLabel()} — {missionDuration}-Day Deployment</p>
+            <p className="text-green-100 mt-2">{personalizedMissionLabel()} — {missionDuration} simulated days</p>
           </div>
 
           <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 space-y-4">
@@ -1382,7 +1424,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
             <div className="border-t border-slate-700 pt-4">
               <h3 className="text-slate-300 text-xs font-bold uppercase tracking-wide mb-2">Mission</h3>
               <p className="text-white">Assess {personalizedRegion()}'s civil environment for HADR readiness across {missionDuration} days of engagement.</p>
-              <p className="text-slate-400 text-sm mt-2">Your available locations are generated for varied training exposure. You choose the order of visits after reviewing preliminary reporting. On longer deployments, the same type of site may appear in different engagements. Choosing a destination is not graded and does not add a travel penalty.</p>
+              <p className="text-slate-400 text-sm mt-2">You can visit {visitLimit} of {missionScenarios.length} possible destinations. Prioritize what you need to learn and leave a useful handover for what you cannot cover. Unvisited destinations are not automatic failures.</p>
             </div>
 
             <div className="border-t border-slate-700 pt-4">
@@ -1396,8 +1438,8 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
             </div>
 
             <div className="border-t border-slate-700 pt-4">
-              <h3 className="text-slate-300 text-xs font-bold uppercase tracking-wide mb-2">Estimated Duration</h3>
-              <p className="text-white">{Math.round(missionDuration * 8 / 3)} hours of gameplay</p>
+              <h3 className="text-slate-300 text-xs font-bold uppercase tracking-wide mb-2">Field-visit budget</h3>
+              <p className="text-white">{visitLimit} visit slots · {missionScenarios.length} destinations · Play at your own pace</p>
             </div>
           </div>
 
@@ -1421,6 +1463,8 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
 
   if (screen === 'missionPlanning') {
     return <MissionPlanning scenarios={missionScenarios} records={missionRecords} sites={siteStates} consequences={missionConsequences}
+      world={worldState} onCommandBrief={recordCommandBrief}
+      visitLimit={visitLimit} duration={missionDuration} chiefPlan={chiefPlan}
       day={currentDay} region={personalizedRegion()} missionLabel={personalizedMissionLabel()} selected={planningSelection} rationale={planningRationale}
       onSelect={setPlanningSelection} onRationale={setPlanningRationale} onTravel={travelToSelectedSite} onSave={saveAndExit} />;
   }
@@ -1496,7 +1540,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
         <div className="max-w-4xl mx-auto">
           <div className="flex justify-between items-center mb-6">
             <div>
-              <p className="text-blue-300 text-sm">Day {currentDay} of {missionDuration} • Visit {missionRecords.length + 1} of {missionScenarios.length}</p>
+              <p className="text-blue-300 text-sm">Day {currentDay} of {missionDuration} • Visit {missionRecords.length + 1} of {visitLimit} · {missionScenarios.length} possible destinations</p>
               <p className="text-slate-400 text-xs mt-1">Mission seed: {missionSeed}</p>
               <h1 className="text-4xl font-bold text-white mt-1">{scenario.name}</h1>
             </div>
@@ -1522,6 +1566,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
           </section>
 
           <div className="flex flex-col">
+          <CommandArrivalNote world={worldState} scenario={scenario} scenarios={missionScenarios} records={missionRecords} />
           {missionConsequences.length > 0 && (
             <div className="order-2 bg-red-950/60 rounded-lg p-5 border border-red-700 mb-6">
               <p className="text-red-300 text-xs font-bold uppercase tracking-wide">Active Mission Consequences</p>
@@ -1540,8 +1585,8 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
           )}
 
           {hasProgress && (validationBrief.claims.length > 0 || validationBrief.gaps.length > 0 || validationBrief.leads.length > 0) && (
-            <div className="order-4 bg-amber-950/30 rounded-lg p-6 border border-amber-600 mb-6">
-              <p className="text-amber-300 text-xs font-bold uppercase tracking-wide">What requires validation</p>
+            <div className="order-first bg-amber-950/30 rounded-lg p-6 border border-amber-600 mb-6">
+              <p className="text-amber-300 text-xs font-bold uppercase tracking-wide">Where you left off · What requires validation</p>
               <p className="text-slate-300 text-sm mt-2">
                 These are claims or unresolved questions—not confirmed facts. Choose a source, record, observation, or comparison that could confirm or contradict them.
               </p>
@@ -1593,10 +1638,10 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
             </div>
           )}
 
-          <div className="order-1 bg-gradient-to-br from-slate-800 to-blue-950/40 rounded-lg p-8 border-2 border-blue-500 mb-6 text-slate-100 leading-relaxed shadow-lg shadow-blue-950/30">
+          {isMarket(scenario) ? <div className="order-1"><MarketScenePanel scenario={scenario} site={siteState} text={hasProgress ? currentContinuityNarrative(siteState, scenario) : orientation.arrival} continued={hasProgress} /></div> : <div className="order-1 bg-gradient-to-br from-slate-800 to-blue-950/40 rounded-lg p-8 border-2 border-blue-500 mb-6 text-slate-100 leading-relaxed shadow-lg shadow-blue-950/30">
             <p className="text-blue-300 text-sm font-bold uppercase tracking-wide mb-3">{hasProgress ? 'Continuity Scene — The Story Continues' : routeChoice ? 'Arrival — At Your Chosen Location' : 'Arrival — At the Location'}</p>
             <p className="whitespace-pre-wrap text-lg leading-8">{hasProgress ? currentContinuityNarrative(siteState, scenario) : orientation.arrival}</p>
-          </div>
+          </div>}
 
           {hasProgress && (
             <>
@@ -1688,6 +1733,8 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
           </div>
           </div>
 
+          <CommandContinuityPanel key={scenario.id} world={worldState} scenarios={missionScenarios} records={missionRecords} scenario={scenario} day={currentDay} onSubmit={recordCommandBrief} />
+
           {showHints && (
             <div id="optional-next-actions" className="bg-blue-900/20 border border-blue-800 rounded-lg p-4 mb-6 scroll-mt-6">
               <p className="text-blue-200 text-sm font-semibold">💡 OPTIONAL NEXT ACTIONS</p>
@@ -1720,83 +1767,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
             </div>
           )}
 
-          {showProductPanel && (
-            <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
-              <label className="text-slate-400 text-xs font-bold uppercase tracking-wide block mb-3">Product Type</label>
-              {!customProductMode ? (
-                <div className="space-y-2 mb-4">
-                  {scenario.suggestedProducts.map(prod => (
-                    <button
-                      key={prod}
-                      onClick={() => {
-                        setSelectedProductType(prod);
-                        setProductDetails(getProductWorksheet(prod, scenario));
-                      }}
-                      className={`w-full text-left px-4 py-2 rounded border ${
-                        selectedProductType === prod
-                          ? 'bg-blue-700 border-blue-600 text-white'
-                          : 'bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600'
-                      }`}
-                    >
-                      {prod}
-                    </button>
-                  ))}
-                  <button
-                    onClick={() => setCustomProductMode(true)}
-                    className="w-full text-left px-4 py-2 rounded border border-slate-600 text-slate-300 hover:bg-slate-600 italic"
-                  >
-                    + Custom Product Type
-                  </button>
-                </div>
-              ) : (
-                <div className="mb-4">
-                  <input
-                    type="text"
-                    placeholder="Enter custom product type"
-                    value={customProductText}
-                    onChange={(e) => setCustomProductText(e.target.value)}
-                    className="w-full px-4 py-2 bg-slate-700 text-white rounded border border-slate-600 placeholder-slate-500 mb-2"
-                  />
-                  <button
-                    onClick={() => setCustomProductMode(false)}
-                    className="text-slate-400 hover:text-slate-300 text-sm"
-                  >
-                    ← back to suggestions
-                  </button>
-                </div>
-              )}
-
-              <textarea
-                value={productDetails}
-                onChange={(e) => setProductDetails(e.target.value)}
-                placeholder="Select a product above to open its worksheet. Replace the trainee-entry fields with your observations and assessment."
-                rows={16}
-                className="w-full px-4 py-3 bg-slate-900 text-white rounded border border-slate-600 placeholder-slate-500 resize-y mb-2 font-mono text-sm"
-              />
-              <p className="text-amber-200 text-xs mb-4">Replace the template fields with your observations. Blank or deleted fields earn no completion credit. Completion does not establish factual accuracy; your leader can review the submitted content.</p>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={submitProduct}
-                  disabled={(!selectedProductType && !customProductText.trim()) || !productDetails.trim() || loading}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:text-slate-500 text-white px-6 py-3 rounded font-bold flex items-center justify-center gap-2"
-                >
-                  <Package className="w-4 h-4" /> Create
-                </button>
-                <button
-                  onClick={() => {
-                    setShowProductPanel(false);
-                    setSelectedProductType(null);
-                    setCustomProductMode(false);
-                    setCustomProductText('');
-                  }}
-                  className="flex-1 bg-slate-700 hover:bg-slate-600 text-white px-6 py-3 rounded font-bold"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
+          {showProductPanel && <MissionProductDialog scenario={scenario} onClose={() => setShowProductPanel(false)} onSubmit={submitProduct} />}
         </div>
       </div>
     );
@@ -1831,15 +1802,16 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-8">
         <div className="max-w-3xl mx-auto">
+          <SubmissionReceipt turns={playtestTurns.filter(t => t.scenario.id === currentScenario().id)} />
           <div className="bg-slate-800 rounded-lg p-8 border border-slate-700 mb-6 text-slate-100 leading-relaxed">
-            <p className="whitespace-pre-wrap">{lastOutcome.narrativeOutcome}</p>
+            {isMarket(currentScenario()) ? <><p className="field-eyebrow mb-5">At the market · The scene responds</p><ConversationPanel text={lastOutcome.narrativeOutcome} /><FollowUpNotes site={currentSiteState()} /></> : <p className="whitespace-pre-wrap">{lastOutcome.narrativeOutcome}</p>}
           </div>
 
           {lastOutcome.actionInterpretation && (
             <details className="bg-indigo-950/35 rounded-lg p-5 border border-indigo-600 mb-6">
               <summary className="text-indigo-200 font-bold cursor-pointer">How This Action Was Interpreted</summary>
               <p className="text-slate-300 text-xs mt-2 mb-4">
-                Local, authored interpretation — no AI service or API key is used. Unrecognized details are not treated as established facts.
+                Unrecognized details are not treated as established facts or completed outcomes. If this response missed your intent, flag it below and share the downloaded feedback with your administrator.
               </p>
               <div className="grid md:grid-cols-2 gap-3 text-sm">
                 <p><span className="text-slate-400">Intent:</span> <span className="text-white">{lastOutcome.actionInterpretation.intent}</span></p>
@@ -1892,6 +1864,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
           <div className="bg-slate-800/70 rounded-lg p-5 border border-slate-600 mb-6">
             <p className="text-slate-200 font-bold">Help improve this response</p>
             <p className="text-slate-400 text-sm mt-1">Nothing is sent automatically. Flag inaccurate feedback now, then export the playtest report when you are ready.</p>
+            {playtestTurns.some(t => t.reviewFlags?.length) && <p className="text-amber-200 text-sm mt-2">Unrecognized details have also been logged automatically in this browser. The exported report includes them alongside your manual flags and original submissions.</p>}
             {!testerFeedbackOpen ? (
               <div className="flex flex-wrap gap-3 mt-4">
                 <button onClick={() => setTesterFeedbackOpen(true)} className="bg-amber-700 hover:bg-amber-600 text-white px-4 py-2 rounded font-semibold">
@@ -1939,7 +1912,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
               onClick={continueFromOutcome}
               className="bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded font-bold text-lg flex items-center justify-center gap-2"
             >
-              {leadReturnPending ? 'Return with Findings' : pendingAdvance ? 'Continue' : 'Back to Location'} <ChevronRight className="w-5 h-5" />
+              {leadReturnPending ? 'Return with Findings' : pendingAdvance ? 'Continue' : 'Continue Scene'} <ChevronRight className="w-5 h-5" />
             </button>
             <button
               onClick={saveAndExit}
@@ -1958,6 +1931,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-8">
         <div className="max-w-3xl mx-auto">
+          <SubmissionReceipt turns={playtestTurns.filter(t => t.scenario.id === currentScenario().id)} />
           <div className="bg-green-900/30 border border-green-700 rounded-lg p-4 mb-6">
             <p className="text-green-200 font-semibold">{lastOutcome.product.name}</p>
             <p className="text-green-300 text-sm mt-1">Filed with: {lastOutcome.product.recipient}</p>
@@ -1966,23 +1940,23 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
 
           <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6 text-slate-100 overflow-x-auto">
             <p className="whitespace-pre-wrap mb-6">{lastOutcome.narrativeOutcome}</p>
-            <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed">{lastOutcome.product.content}</pre>
+            {lastOutcome.product.mode !== 'mission-brief' && <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed">{lastOutcome.product.content}</pre>}
           </div>
 
-          <div className="bg-slate-800 rounded-lg p-4 border border-slate-700 mb-6">
+          {lastOutcome.product.mode === 'mission-brief' ? <section className="bg-green-950/40 border border-green-600 rounded-lg p-5 mb-6 text-white"><h2 className="font-bold text-xl">Mission product recorded</h2><p className="mt-2">Reporting-practice credit recorded once for this site. The recipient, purpose and key finding are saved for leader review. Repeated submissions do not add more credit.</p><p className="text-sm text-green-200 mt-2">A full template and factual accuracy were not assessed. No document was sent outside this exercise.</p></section> : <div className="bg-slate-800 rounded-lg p-4 border border-slate-700 mb-6">
             <p className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">Worksheet Completion Score</p>
             <p className="text-2xl font-bold text-white">{lastOutcome.product.completionScore ?? lastOutcome.productCompletionPercent ?? 0} / 100</p>
             <p className="text-slate-300 text-sm mt-2">Trainee-entry fields completed: {lastOutcome.productCompletionPercent ?? 0}%</p>
             <p className="text-slate-300 text-sm mt-2">Current site practice score across all dimensions: {lastOutcome.qualityScore} / 100</p>
             <p className="text-amber-200 text-xs mt-3">Worksheet completion is not a factual-accuracy grade. Source validation, analysis, and doctrinal quality require instructor review.</p>
-          </div>
+          </div>}
 
           <div className="grid sm:grid-cols-2 gap-3">
             <button
               onClick={continueFromOutcome}
               className="bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded font-bold text-lg flex items-center justify-center gap-2"
             >
-              {pendingAdvance ? 'Continue' : 'Back to Location'} <ChevronRight className="w-5 h-5" />
+              {pendingAdvance ? 'Continue' : 'Continue Scene'} <ChevronRight className="w-5 h-5" />
             </button>
             <button
               onClick={saveAndExit}
@@ -2042,6 +2016,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
 
           <section className="bg-green-950/40 border border-green-600 rounded-lg p-6">
             <h2 className="text-2xl font-bold text-white">Share Your Performance Report</h2>
+            {report.unvisitedDestinations.length > 0 && <details className="text-slate-200 my-4"><summary className="cursor-pointer font-bold">Tradeoffs: {report.unvisitedDestinations.length} destinations left for handover</summary><p className="my-2">These are unresolved knowledge gaps, not automatic failures. Discuss why you prioritized the sites you visited and what the next team should follow up.</p><ul className="list-disc pl-5">{report.unvisitedDestinations.map(site => <li key={site.id}>{site.location}</li>)}</ul></details>}
             <p className="text-slate-200 mt-2">{report.status} · {report.overallScore}/100 practice score. Includes readiness results, products, decision evidence, and space for first-line-leader review.</p>
             {!report.readinessComplete && <p className="text-amber-200 mt-2">Readiness checks were skipped or incomplete. The report records this explicitly.</p>}
             <div className="flex flex-wrap gap-3 mt-4">
@@ -2052,6 +2027,8 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
             <p className="text-slate-400 text-xs mt-3">{report.provenance} Reports contain the text you entered; review them before sharing.</p>
             {reportNotice && <p role="status" className="text-green-200 mt-3">{reportNotice}</p>}
           </section>
+
+          <CommandContinuityPanel world={worldState} scenarios={missionScenarios} records={missionRecords} reviewOnly />
 
           <div className="bg-blue-950/60 border-2 border-blue-600 rounded-lg p-5">
             <p className="text-blue-200 text-xs font-bold uppercase tracking-wide">AAR Learning Activities</p>

@@ -4,6 +4,7 @@ import { FOUNDATION_POLICIES } from './foundationPolicies';
 import { parseLocalAction } from './localActionParser';
 import { worksheetCompletion } from './worksheetCompletion';
 import { evaluateOffline } from './offlineEvaluator';
+import { authorMarketReactions, marketFollowUps } from './marketScene';
 
 const severityRank = { none: 0, coaching: 1, concern: 2, serious: 3, critical: 4 };
 const unique = values => [...new Set((values || []).filter(Boolean))];
@@ -16,13 +17,28 @@ function productAttachmentPolicy(record) {
     id: 'claimed-products-not-submitted', severity: 'coaching', evidence: record.rawText,
     effects: ['CMOC replies: “Tracking ' + missing.join(', ') + ' in your message, but the attachments did not come through. Please resend using Create a Product.” The documents are not recorded as submitted.'],
     products: { missing },
-    coaching: ['Complete the relevant templates and submit the worksheets. Preparing a draft in prose does not attach a product.'],
+    coaching: ['Use Create a Product to record the product type, recipient, purpose and key finding. Mentioning a report in an action does not attach it; full template practice is available separately.'],
     scoreChanges: [{ dimension: 'productQuality', delta: 0, reasonCode: 'product-not-attached', evidence: record.rawText }]
   }];
 }
 export const DEFAULT_ACTION_POLICIES = [...FOUNDATION_POLICIES, productAttachmentPolicy];
 
 function productFinding(record, input, world) {
+  if (input.missionProduct) {
+    const brief = input.missionProduct;
+    if (![brief.name, brief.recipient, brief.purpose, brief.keyFinding].every(value => typeof value === 'string' && value.trim())) throw new Error('Product type, recipient, purpose and key finding are required.');
+    if (brief.name !== input.productName || !(input.scenario?.suggestedProducts || ['Field report']).includes(brief.name)) throw new Error('Choose a product offered for this scene.');
+    const previous = world.sites?.[record.scenarioId]?.dimensionScores?.productQuality || 0;
+    return {
+      id: 'mission-product-recorded', severity: 'none', evidence: record.rawText,
+      creditKey: record.scenarioId + ':mission-product',
+      effects: ['Your ' + brief.name + ' is added to the exercise record for ' + brief.recipient.trim() + '. The purpose and key finding travel with it. The team now has something concrete to hand over, rather than a promise that a report will follow.\n\nThe content remains your assessment. Recording it does not confirm the finding, authorize the proposed action, or send a document outside this simulation.'],
+      products: { accepted: [brief.name] },
+      scoreChanges: [{ dimension: 'productQuality', delta: Math.max(0, 100 - previous), reasonCode: 'mission-product-participation', evidence: record.rawText }],
+      product: { ...brief, mode: 'mission-brief', name: brief.name, content: record.rawText, citationStandard: 'Short mission brief — participation only; full template and accuracy not assessed' },
+      coaching: ['A useful handover names the audience, purpose, key finding and uncertainty. Review the content with your leader; detailed template practice is separate.']
+    };
+  }
   // The legacy evaluator is used ONLY for worksheet completion and IG routing.
   // Its narrative/rapport/progress cannot mutate the world.
   const result = evaluateOffline('TRAINEE WANTS TO CREATE THIS PRODUCT: "' + input.productName + '"\nADDITIONAL DETAILS FROM TRAINEE: "' + record.rawText + '"\n', input.scenario || {}, {});
@@ -123,7 +139,9 @@ export function processUnifiedAction(input = {}, policies = DEFAULT_ACTION_POLIC
     : input.kind === 'skip' ? [{
       id: 'departed-without-engagement', severity: 'none', effects: ['The team leaves without engaging. The host has received no explanation of the visit, and the site’s information requirements remain open.']
     }] : policies.flatMap(policy => policy(actionRecord, world) || []);
+  findings = authorMarketReactions(actionRecord, findings, world);
   const worldUpdate = reduceFindings(actionRecord, findings, world);
+  worldUpdate.followUpRequests = marketFollowUps(actionRecord, worldUpdate);
   if (input.activeLead && worldUpdate.severity === 'none' && worldUpdate.discoveries.length) {
     worldUpdate.leads.changed.push({ ...input.activeLead, status: 'completed' });
     worldUpdate.effects.push('The team records this source visit against the developed lead. The account remains attributed; visiting a second person does not by itself prove the original claim.');

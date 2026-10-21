@@ -2,6 +2,7 @@ node_modules/
 build/
 coverage/
 test-results/
+.cache/
 *.log
 .env*
 !.env.example

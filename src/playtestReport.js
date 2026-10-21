@@ -31,6 +31,7 @@ export function createPlaytestTurn({
     playerAction: playerAction || summaryLabel || '',
     summaryLabel: summaryLabel || '',
     systemInterpretation: interpretation || null,
+    reviewFlags: (interpretation?.ambiguities || []).map(detail => ({ category: 'unrecognized-action', detail })),
     systemResponse: outcome?.narrativeOutcome || '',
     evaluation: {
       mode: outcome?.evaluationMode || 'unknown',
@@ -71,6 +72,7 @@ export function buildPlaytestReport({ missionSeed, turns, appVersion = '4.3.0' }
     missionSeed: missionSeed || '',
     turnCount: turns.length,
     flaggedTurnCount: turns.filter(turn => turn.testerFeedback?.inaccurate).length,
+    unresolvedTurnCount: turns.filter(turn => turn.reviewFlags?.length).length,
     turns
   };
 }

@@ -153,19 +153,20 @@ export function createMissionSeed() {
   return `HIP-${bytes[0].toString(36)}-${bytes[1].toString(36)}`.toUpperCase();
 }
 
-export function generateScenario(seed, { day = 1, duration = 3, role = 'sgt' } = {}) {
+export function generateScenario(seed, { day = 1, duration = 3, role = 'sgt', featuredMarket = false } = {}) {
   const normalized = String(seed).trim().toUpperCase();
   if (!normalized) throw new Error('Scenario seed is required');
   const rng = randomFor(`${normalized}|${role}`);
-  const geography = pick(DATA.geographies, rng);
+  const geography = pick(featuredMarket ? DATA.geographies.filter(g => g[0] !== 'industrial') : DATA.geographies, rng);
   const validSites = DATA.sites.filter(site => site[3] === '*' || site[3].split(',').includes(geography[0]));
-  const site = pick(validSites, rng);
+  const site = featuredMarket ? DATA.sites.find(s => s[0] === 'market') : pick(validSites, rng);
   const relatedSite = pick(validSites.filter(candidate => candidate[0] !== site[0]), rng);
   const environment = pick(DATA.environments, rng);
   const mission = pick(DATA.missions, rng);
   const difficulty = role === 'chief' ? 4 : role === 'sgt' ? 3 : role === 'canco' ? 2 : 1;
   const siteContext = SITE_CONTEXT[site[0]];
-  const localStakeholders = sample(siteContext.stakeholders, Math.min(2 + difficulty, 4), rng);
+  const sampledStakeholders = sample(siteContext.stakeholders, Math.min(2 + difficulty, 4), rng);
+  const localStakeholders = featuredMarket ? ['market association chair', 'transport cooperative representative', ...sampledStakeholders.filter(s => !['market association chair', 'transport cooperative representative'].includes(s))].slice(0, Math.min(2 + difficulty, 4)) : sampledStakeholders;
   const supplementalStakeholders = sample(DATA.stakeholders.filter(name => !localStakeholders.includes(name)), 1, rng);
   const stakeholders = [...localStakeholders, ...supplementalStakeholders].slice(0, Math.min(2 + difficulty, 5));
   const complications = sample(DATA.complications, Math.min(1 + Math.floor(difficulty / 2), 3), rng);
@@ -293,16 +294,17 @@ export function summarizeMissionCoverage(scenarios) {
   };
 }
 
-export function generateMission({ seed, days, role }) {
+export function generateMission({ seed, days, role, candidateCount = days, includeMarket = false }) {
   if (!Number.isInteger(days) || days < 1 || days > 29) throw new Error('Mission length must be between 1 and 29 days');
+  if (!Number.isInteger(candidateCount) || candidateCount < 1 || candidateCount > 60) throw new Error('Invalid destination pool');
   const selected = [];
-  for (let index = 0; index < days; index += 1) {
+  for (let index = 0; index < candidateCount; index += 1) {
     const day = index + 1;
     const daySeed = `${seed}-DAY-${day}`;
     const candidates = Array.from({ length: 96 }, (_, candidateIndex) =>
       generateScenario(`${daySeed}-OPTION-${candidateIndex + 1}`, { day, duration: days, role })
     );
-    const chosen = candidates.reduce((best, candidate) =>
+    const chosen = includeMarket && index === 0 ? generateScenario(`${daySeed}-MARKET`, { day, duration: days, role, featuredMarket: true }) : candidates.reduce((best, candidate) =>
       candidatePenalty(candidate, selected) < candidatePenalty(best, selected) ? candidate : best
     );
     selected.push({

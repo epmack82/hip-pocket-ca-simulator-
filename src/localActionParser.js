@@ -1,5 +1,6 @@
 // A bounded, local language parser. Unknown clauses remain unknown; mentioning
 // a word is never by itself evidence that the trainee performed that act.
+import { resolveMarketName } from './marketScene';
 const unique = values => [...new Set(values.filter(Boolean))];
 const aliases = { municiple: 'municipal', municipial: 'municipal', introducions: 'introductions', introductioons: 'introductions', interpretor: 'interpreter', interperter: 'interpreter', permision: 'permission', childern: 'children', gree: 'greet' };
 
@@ -19,6 +20,7 @@ function distance(a, b) {
 }
 
 export function resolveStakeholders(text, stakeholders = []) {
+  const named = resolveMarketName(normalizeActionText(text), stakeholders);
   const words = normalizeActionText(text).match(/[a-z]+/g) || [];
   const scored = stakeholders.map((name, index) => {
     const title = normalizeActionText(name).match(/[a-z]+/g) || [];
@@ -30,7 +32,7 @@ export function resolveStakeholders(text, stakeholders = []) {
     return { name, index, score: addressed ? score : 0 };
   }).filter(item => item.score >= 3).sort((a, b) => b.score - a.score || a.index - b.index);
   // Shared words such as municipal do not engage every municipal official.
-  return scored.filter(item => item.score === scored[0].score).map(item => item.name);
+  return unique([...named, ...scored.filter(item => item.score === scored[0].score).map(item => item.name)]);
 }
 
 const definitions = [
@@ -46,7 +48,9 @@ const definitions = [
   ['performance', /\b(?:rap|rapping|freestyle|dance|dancing|sing|perform)\b/],
   ['contact', /\b(?:play|join|photograph|film|touch|hug|carry|interview|escort|approach|speak|talk|give)\b.{0,80}\b(?:children|kids|students|patients|detainees|refugees|survivors|disabled|displaced|elderly|minor)\b/],
   ['interpreter-exclusion', /\b(?:leave|left|keep|send|sent|exclude)\b.{0,35}\b(?:interpreter|translator)\b.{0,45}\b(?:outside|behind|away|out|alone)\b|\bwithout\s+(?:the|my|our)\s+(?:interpreter|translator)\b/],
-  ['interpreter-substitution', /\b(?:tell|ask|have|make|send|leave)\b.{0,30}\b(?:interpreter|translator)\b.{0,65}\b(?:lead|conduct|handle|do|give|talk\s+to)\b/],
+  ['interpreter-substitution', /\b(?:tell|ask|have|make|send|leave)\b.{0,30}\b(?:interpreter|translator)\b.{0,65}\b(?:(?:lead|conduct|handle|do)\s+(?:the\s+)?(?:meeting|engagement|introductions?|negotiation)|give\s+(?:the\s+)?introductions?|talk\s+to)\b/],
+  ['local-orientation', /\b(?:interpreter|translator)\b.{0,50}\b(?:lay of the land|local context|local customs|orientation)\b|\b(?:explore|walk around)\b.{0,40}\bmarket\b/],
+  ['community-rapport', /\b(?:purchase|buy)\b.{0,70}\b(?:items|shops|market|vendors)\b|\b(?:engage|engaging)\s+with\s+(?:the\s+)?locals\b/],
   ['interpreter-support', /\b(?:use|work\s+with|involve|ask|brief|through|with|leverage|leveraging)\b.{0,35}\b(?:interpreter|translator)\b|\b(?:interpretation|back.translation|translate|short phrases)\b/],
   ['permission-request', /\b(?:ask|request|seek|obtain)\b.{0,35}\b(?:permission|consent|approval)\b/],
   ['invitation', /\b(?:invite|include|welcome)\b.{0,80}\b(?:join|conversation|discussion|meeting|engineer|administrator|teacher|nurse)\b/],
@@ -57,14 +61,18 @@ const definitions = [
   ['validation', /\b(?:validate|verify|confirm|compare|cross.check|corroborate)\b/],
   ['coordination', /\b(?:coordinate|refer|notify|brief|route|contact|report|send\s+(?:an?\s+)?update)\b/],
   ['documentation', /\b(?:document|record|write|prepare|complete|submit|send|attach)\b/],
-  ['accountability', /\b(?:apologize|apologise|acknowledge|correct|retract|take responsibility)\b/]
+  ['meeting-request', /\b(?:schedule|arrange|request|organize)\b.{0,35}\bmeetings?\b/],
+  ['procurement-request', /\b(?:arrange|request|seek|coordinate)\b.{0,40}\b(?:contract|bids?|procurement)\b/],
+  ['data-correction', /\b(?:correct|revise|update)\b.{0,35}\b(?:population|estimate|figures?|records?|data)\b/],
+  ['public-communication', /\b(?:public affairs|publish|public announcement|messaging)\b/],
+  ['accountability', /\b(?:apologize|apologise|retract|take responsibility|acknowledge\s+(?:my|our|the)\s+(?:mistake|error|conduct)|correct\s+(?:my|our)\s+(?:behavior|conduct|mistake))\b/]
 ];
 
 export function parseLocalAction(rawText = '', scenario = {}, world = {}) {
   const text = normalizeActionText(rawText);
   const stakeholders = scenario.keyStakeholders || [];
   const globalTargets = resolveStakeholders(text, stakeholders);
-  const clauses = text.split(/(?:[.!?;\n]+|\b(?:and\s+then|then|while|but)\b|\band\s+(?=(?:i|we)\s))/).map(s => s.trim()).filter(Boolean);
+  const clauses = text.split(/(?:[.!?;\n]+|\b(?:and\s+then|then|while|but)\b|,\s*(?=(?:(?:i|we)\s+)?(?:schedule|arrange|request|ask|inspect|observe|invite|prepare|submit|coordinate)\b)|\band\s+(?=(?:i|we)\s))/).map(s => s.trim()).filter(Boolean);
   const actions = [];
   let conversationTarget = world.sites?.[scenario.id]?.conversationTarget || stakeholders[0] || 'Local stakeholder';
   if (globalTargets.length === 1) conversationTarget = globalTargets[0];
@@ -97,7 +105,7 @@ export function parseLocalAction(rawText = '', scenario = {}, world = {}) {
     const suppressed = kind => (negated || hypothetical || reporting) && !['coordination', 'inquiry', 'documentation'].includes(kind);
     const operative = unique(kinds.filter(kind => !suppressed(kind)));
     if (request && !operative.includes('permission-request')) operative.push('permission-request');
-    const role = operative.includes('interpreter-exclusion') ? 'excluded' : operative.includes('interpreter-substitution') ? 'substituting' : operative.includes('interpreter-support') ? 'supporting' : 'not-mentioned';
+    const role = operative.includes('interpreter-exclusion') ? 'excluded' : operative.includes('interpreter-substitution') ? 'substituting' : operative.includes('interpreter-support') || (operative.includes('local-orientation') && /interpreter|translator/.test(clause)) ? 'supporting' : 'not-mentioned';
     const target = targets[0] || conversationTarget;
     if (targets.length === 1 && !reporting && !negated && !hypothetical) conversationTarget = target;
     actions.push({ id: `act-${sequence + 1}`, description: clause, actor: thirdParty ? 'reported-third-party' : 'trainee', target, targets, sequence: sequence + 1,
@@ -119,7 +127,7 @@ export function parseLocalAction(rawText = '', scenario = {}, world = {}) {
     interpreterRole: role, permission: active.some(a => a.permission === 'denied') ? 'denied' : active.some(a => a.permission === 'stated') ? 'stated' : active.some(a => a.request) ? 'requested' : 'unclear',
     professionalRisk: active.some(a => a.kinds.some(k => ['destruction', 'violence'].includes(k))) ? 'critical' : active.some(a => a.kinds.some(k => ['intoxication', 'harassment', 'coercion', 'unsafe-equipment'].includes(k))) ? 'high' : 'context-dependent',
     protectedPopulation: active.find(a => a.protectedPopulation !== 'none')?.protectedPopulation || 'none',
-    missionRelevance: active.some(a => a.topic) ? 'high' : 'unknown', confidence: actions.length ? Math.min(...actions.map(a => a.confidence)) : 0,
+    missionRelevance: active.some(a => a.topic || a.kinds.some(k => ['local-orientation', 'community-rapport', 'meeting-request', 'data-correction'].includes(k))) ? 'high' : 'unknown', confidence: actions.length ? Math.min(...actions.map(a => a.confidence)) : 0,
     claimedProducts: productDefinitions.filter(([, re]) => re.test(productText)).map(([name]) => name),
     ambiguities: actions.filter(a => !a.kinds.length && !a.negated).map(a => a.description),
     previousInterpreterStatus: world.interpreterStatus || 'available'

@@ -1,6 +1,6 @@
 {
   "name": "hippocket-ca-simulator",
-  "version": "4.4.1",
+  "version": "4.8.0",
   "description": "Hip Pocket - Civil Affairs HADR Training Simulator",
   "private": true,
   "dependencies": {

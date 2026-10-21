@@ -103,14 +103,14 @@ export function engagementPolicy(record, world = {}) {
       const active = (world.persistentConditions || []).filter(c => c.status === 'active');
       const reported = any(record, 'coordination') && /\b(?:command|team leader|team chief|cmoc|chain of command)\b/i.test(record.rawText);
       findings.push(credit(record, act, active.length ? 'accountability' : 'courtesy-apology',
-        who + (active.length ? ' hears the acknowledgment. “I appreciate that you addressed it. We still need to deal with what happened.”' : ' accepts the apology and makes room in the conversation.'),
+        who + (active.length ? ' hears the acknowledgment without immediately relaxing. “I appreciate that you addressed it. We still need to deal with what happened.” The conversation can continue, but the earlier incident remains between you.\n\n“Tell me what you will do differently—and who will follow through.” An apology opens that discussion; it does not restore lost access or erase the effect on other people.' : ' pauses, then accepts the apology. “Thank you for saying that. Let us start with what you need to understand.” The tone becomes less guarded, but the host has not yet endorsed a plan or offered new evidence.\n\nThere is room to continue now. A specific question or explanation of purpose will give the conversation somewhere to go.'),
         active.length && reported ? { coordination: 10 } : {},
         { conditionChanges: reported ? active.filter(c => c.severity !== 'critical').map(c => ({ id: c.id, status: 'mitigating' })) : [],
           coaching: active.length ? ['Acknowledgment and reporting begin mitigation. Restrictions and the recorded consequence remain; this is not a reset.'] : [] }));
     }
     if (has(act, 'invitation') || has(act, 'introduction')) {
       const repeated = (site.engagedParticipants || []).includes(speaker);
-      const intro = repeated ? ' returns the greeting and refers back to the earlier discussion.' : ' turns toward the team and joins the exchange. “Thank you for including me. What would you like to understand about our work?”';
+      const intro = repeated ? ' recognizes you and returns the greeting. “We have made a start. Which of the questions from our earlier discussion do you want to pursue?” The familiar opening does not add new evidence; the next move is yours.' : ' turns toward the team and joins the exchange. “Thank you for including me. What would you like to understand about our work?” The welcome is measured: you have their attention, not yet their agreement.\n\n“Please hear our situation before deciding what we need.” The invitation gives you a chance to explain your purpose and ask whose perspective is still missing.';
       const translation = any(record, 'interpreter-support') && !unavailable && !any(record, 'interpreter-substitution')
         ? ' The interpreter translates the introduction in short sections while you remain responsible for the exchange.' : '';
       findings.push(credit(record, act, 'constructive-engagement-opening', who + intro + translation, { rapport: 35, professionalism: 30, missionFocus: 15 },
@@ -121,6 +121,24 @@ export function engagementPolicy(record, world = {}) {
     if (has(act, 'gift')) findings.push(credit(record, act, 'gift-protocol',
       who + ' pauses over the offered gift. “Please explain what this represents.” The gesture is acknowledged, but acceptance is left open while local and official expectations are checked.',
       {}, { coaching: ['The value of a gift does not earn points. Explain intent and check applicable protocol; do not assume acceptance.'] }));
+    if (has(act, 'local-orientation')) findings.push(credit(record, act, 'local-orientation',
+      'The interpreter stays alongside the team as you get your bearings. “I can help with language and local context. Let us check our impressions with the people who work here.” You remain responsible for the engagement; asking for orientation has not delegated leadership.\n\nThe wider scene is still open to you. No meeting has been recorded as missed, and the listed contact remains a possible next stop.',
+      { initiative: 15, missionFocus: 10 }, { interpreterStatus: 'available', coaching: ['Orientation can support the mission. Distinguish an interpreter’s perspective from verified information and keep any actual appointments in view.'] }));
+    if (has(act, 'community-rapport')) findings.push(credit(record, act, 'community-rapport',
+      'At the stalls, the ordinary exchange gives the team a less formal way to begin conversation. A vendor acknowledges your interest, but a purchase alone does not establish trust or tell you how the wider community views the team.\n\nThere is an opening here: listen to what matters to the people you meet, rather than assuming the gesture achieved the sentiment you intended. The official contact has not been marked as neglected simply because you chose to start elsewhere.',
+      { initiative: 10 }, { coaching: ['Goodwill is an intent, not a measured outcome. Look for voluntary engagement and contrasting perspectives; do not equate spending with favorable sentiment.'] }));
+    if (has(act, 'meeting-request')) findings.push(credit(record, act, 'meeting-request',
+      who + ' considers the proposed meeting. “I can see why you want the right people together. What decision should they be ready to discuss?” Interest is not a confirmed appointment: the invitation, availability and agenda still need agreement.\n\nThe request is now part of your field notes. You can refine the purpose here, identify who must attend, or return to gathering the evidence that would make the meeting useful.',
+      { coordination: 15, initiative: 10 }, { coaching: ['A proposed meeting is not a completed engagement. Track the recipient, purpose, confirmation and follow-up.'] }));
+    if (has(act, 'data-correction')) findings.push(credit(record, act, 'data-correction',
+      who + ' looks carefully at the proposed correction. “If we change that figure, people will ask which count we trust. Show us the source and when it was collected.” The need to reconcile the estimate is acknowledged; no replacement number has been accepted as verified.\n\nThis is a question of evidence, not an apology. Comparing dates, coverage and counting methods is still work for the team.',
+      { missionFocus: 10 }, { coaching: ['Retain the old and proposed figures, their sources and the basis for reconciliation. A request to correct data does not itself validate it.'] }));
+    if (has(act, 'procurement-request')) findings.push(credit(record, act, 'procurement-request',
+      who + ' becomes attentive at the mention of bids. “Is this an assessment of a need, or are you telling us work has been funded?” The distinction matters to the host. No contractor has been selected and no upgrade has been approved.\n\nYour proposal remains a coordination request. Clarifying the responsible contracting authority, scope and funding would keep a useful idea from becoming an expectation the team cannot meet.',
+      { initiative: 10 }, { coaching: ['Seeking bids is not authority to award a contract. Clarify authority and funding without promising a project.'] }));
+    if (has(act, 'public-communication')) findings.push(credit(record, act, 'public-communication',
+      who + ' weighs the proposed announcement. “People will plan around what they hear. What can we say with confidence today?” A reliable schedule could help; announcing unconfirmed improvements could instead undermine trust.\n\nThe communication proposal is recorded for coordination. Nothing has been published, and local ownership, factual accuracy and the appropriate release channel still need confirmation.',
+      { coordination: 10 }, { coaching: ['Separate confirmed service information from proposed projects. Coordinate the audience, local partners and release authority before publication.'] }));
     if (has(act, 'permission-request')) {
       const contact = has(act, 'contact') || act.protectedPopulation !== 'none';
       const observationRequested = !contact && /\b(?:inspect|observe|observation|walk|tour|visit)\b/.test(act.description);

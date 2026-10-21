@@ -1,9 +1,9 @@
 export const WORLD_UPDATE_VERSION = 2;
-export const RUBRIC_VERSION = 'local-evidence-1';
+export const RUBRIC_VERSION = 'local-evidence-2';
 export const SCORE_DIMENSIONS = [
   ['rapport', 'Rapport and inclusion'], ['professionalism', 'Professional judgment'],
   ['informationCollection', 'Information collection'], ['validation', 'Validation'],
-  ['productQuality', 'Worksheet completion'], ['coordination', 'Coordination'],
+  ['productQuality', 'Reporting practice'], ['coordination', 'Coordination'],
   ['initiative', 'Initiative'], ['missionFocus', 'Mission focus']
 ];
 const unique = values => [...new Set(values || [])];
@@ -68,6 +68,7 @@ export function applyWorldUpdate(world = {}, update, record = {}) {
     informationGaps: unique([...(previous.informationGaps || ['Current service conditions and population affected', 'Independent confirmation of stakeholder claims', 'Responsible authority and follow-up coordination']), ...update.gaps.opened]).filter(gap => !update.gaps.resolved.includes(gap)),
     advancedGaps: unique([...(previous.advancedGaps || []), ...update.gaps.advanced]),
     leads: mergeById(previous.leads, [...update.leads.opened, ...update.leads.changed]),
+    followUpRequests: mergeById(previous.followUpRequests, update.followUpRequests),
     completedProducts: unique([...(previous.completedProducts || []), ...update.products.accepted]),
     engagedParticipants: unique([...(previous.engagedParticipants || []), ...update.engagedParticipants]),
     conversationTarget: conversation.length ? conversation[conversation.length - 1].target : previous.conversationTarget,

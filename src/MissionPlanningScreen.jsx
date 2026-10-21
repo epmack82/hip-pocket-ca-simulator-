@@ -1,17 +1,21 @@
 import React from 'react';
 import { siteOrientation, remainingSites, knownPlanningLeads } from './missionPlanning';
+import CampaignMap from './CampaignMap';
+import CommandContinuityPanel from './CommandContinuityPanel';
+import { commandFollowUpIds } from './commandContinuity';
 
 export default function MissionPlanningScreen({ scenarios, records, sites, consequences, day, region, missionLabel,
-  selected, rationale, onSelect, onRationale, onTravel, onSave }) {
+  selected, rationale, onSelect, onRationale, onTravel, onSave, visitLimit = scenarios.length, duration = scenarios.length, chiefPlan, world = {}, onCommandBrief }) {
   const choices = remainingSites(scenarios, records);
   const leads = knownPlanningLeads(sites);
   const chosen = choices.find(({ scenario }) => scenario.id === selected)?.scenario;
+  const commandTargets = commandFollowUpIds(world, scenarios, records);
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 p-4 sm:p-8">
       <main className="max-w-5xl mx-auto space-y-6" data-testid="mission-planning">
         <header className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-blue-300 text-sm">Day {day} of {scenarios.length} · Locations concluded: {records.length}</p>
+            <p className="text-blue-300 text-sm">Simulated day {day} of {duration} · {Math.max(0, visitLimit - records.length)} of {visitLimit} visit slots remaining · {choices.length} destinations still available</p>
             <h1 className="text-3xl sm:text-4xl font-bold text-white mt-2">{records.length ? 'Plan Your Next Move' : 'Plan Your First Move'}</h1>
             <p className="text-slate-300 mt-2">{missionLabel}</p>
           </div>
@@ -24,8 +28,11 @@ export default function MissionPlanningScreen({ scenarios, records, sites, conse
             ? `Your team has concluded its latest engagement in ${region}. Review what you learned and choose where to go next.`
             : `Your team is at its staging point in ${region}. Preparation is complete; you have not arrived at a field location yet.`}</p>
           <p className="text-slate-200 mt-3 leading-relaxed">Command needs a clearer picture of civil needs, local capabilities, and gaps in access to essential services. Decide where to begin collecting information, distinguish reports from verified findings, and document follow-up recommendations.</p>
-          <p className="text-blue-200 text-sm mt-3">Choose one of the available engagements below. Each visit uses one day in this preview. There is no scored “correct” order or additional travel penalty; permission and access still need to be established at the site.</p>
+          <p className="text-blue-200 text-sm mt-3">Each destination uses one field-visit slot, including travel, coordination and reporting time. You cannot visit everything. Unvisited sites remain knowledge gaps for handover, not automatic failures. The order is recorded for AAR discussion, not graded against a hidden “correct” route. Permission and access still need to be established at each site.</p>
         </section>
+        {chiefPlan?.completed && <details className="bg-slate-800 text-slate-200 rounded-lg p-4"><summary className="cursor-pointer font-bold">Your pre-deployment recommendation</summary><p className="mt-3 whitespace-pre-wrap">{chiefPlan.rationale}</p><p className="text-sm mt-2">Use the full plan in your leader report to compare your initial intent with what unfolded.</p></details>}
+        <CampaignMap scenarios={scenarios} records={records} selected={selected} onSelect={onSelect} visitLimit={visitLimit} sites={sites} commandTargets={commandTargets} />
+        <CommandContinuityPanel world={world} scenarios={scenarios} records={records} day={day} onSubmit={onCommandBrief} />
 
         {consequences.length > 0 && <section className="bg-red-950/40 border border-red-800 rounded-lg p-5" aria-label="Continuing mission consequences">
           <h2 className="text-red-200 font-bold">The mission carries forward</h2>
@@ -55,6 +62,7 @@ export default function MissionPlanningScreen({ scenarios, records, sites, conse
                   <div><h3 className="text-white text-lg font-bold capitalize">{scenario.location}</h3><p className="text-blue-200 text-xs mt-1">{scenario.name.split(' — ')[0]}</p></div>
                 </div>
                 <p className="text-slate-200 mt-4 text-sm leading-relaxed">{brief.report}</p>
+                {commandTargets.includes(scenario.id) && <p className="text-amber-200 text-sm mt-2 font-semibold">Linked to your command brief — optional follow-up, not a confirmed finding</p>}
                 <p className="text-slate-300 mt-2 text-sm"><span className="text-slate-400">Why it matters:</span> {brief.relevance}</p>
                 <p className="text-slate-300 mt-3 text-sm"><span className="text-slate-400">Listed point of contact:</span> {brief.contact}</p>
               </label>;
