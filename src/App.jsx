@@ -27,6 +27,8 @@ import ChiefPlanningScreen from './ChiefPlanningScreen';
 import MarketScenePanel, { ConversationPanel, FollowUpNotes } from './MarketScenePanel';
 import CampaignMap from './CampaignMap';
 import MarketActionHelper from './MarketActionHelper';
+import ClinicConversationPanel from './ClinicConversationPanel';
+import { isClinic } from './clinicDialogue';
 import { isMarket } from './marketScene';
 
 // ===== SCENARIO DATA (MOVED OUTSIDE COMPONENT) =====
@@ -479,7 +481,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
       });
       if (!turn.ok) throw new Error(turn.errors.join(' '));
       const applied = applyTurn(turn, summaryLabel);
-      const nextScreen = applied.result.missionTerminated ? 'missionFailure' : applied.result.product ? 'productDisplay' : 'outcomeDisplay';
+      const nextScreen = applied.result.missionTerminated ? 'missionFailure' : applied.result.product ? 'productDisplay' : opts.stayInConversation && turn.worldUpdate.severity === 'none' ? 'scenarioScreen' : 'outcomeDisplay';
       setPendingAdvance(Boolean(opts.isMoveOn));
       setLeadReturnPending(opts.kind === 'lead');
       setScreen(nextScreen);
@@ -495,7 +497,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
   }
 
   function submitAction() {
-    if (actionText.trim()) runEval(actionText.trim(), actionText.trim());
+    if (actionText.trim()) runEval(actionText.trim(), actionText.trim(), { stayInConversation: isClinic(currentScenario()) });
   }
 
   function submitLeadAction() {
@@ -1646,6 +1648,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
           )}
 
           {isMarket(scenario) ? <div className="order-1"><MarketScenePanel scenario={scenario} site={siteState} text={hasProgress ? currentContinuityNarrative(siteState, scenario) : orientation.arrival} continued={hasProgress} /></div> : <div className="order-1 bg-gradient-to-br from-slate-800 to-blue-950/40 rounded-lg p-8 border-2 border-blue-500 mb-6 text-slate-100 leading-relaxed shadow-lg shadow-blue-950/30">
+            {scenario.metadata?.site === 'clinic' && <figure className="mb-6"><img src="/art/clinic-arrival-v1.png" alt="Illustrated clinic entrance with shaded benches, adult visitors and a nurse at the doorway" className="w-full rounded-lg object-cover" style={{ maxHeight: 260 }} /><figcaption className="text-xs text-slate-400 mt-2">Fictional setting illustration · Not collected evidence or a depiction of a real facility.</figcaption></figure>}
             <p className="text-blue-300 text-sm font-bold uppercase tracking-wide mb-3">{hasProgress ? 'Continuity Scene — The Story Continues' : routeChoice ? 'Arrival — At Your Chosen Location' : 'Arrival — At the Location'}</p>
             <p className="whitespace-pre-wrap text-lg leading-8">{hasProgress ? currentContinuityNarrative(siteState, scenario) : orientation.arrival}</p>
           </div>}
@@ -1707,6 +1710,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
           <div className="order-5 bg-gradient-to-br from-green-950/50 to-slate-800 rounded-lg p-7 border-2 border-green-500 mb-6 shadow-lg shadow-green-950/20">
             <label className="text-green-300 text-xl font-bold uppercase tracking-wide block mb-2">What Will You Do Next?</label>
             {isMarket(scenario) && <MarketActionHelper key={scenario.id} stakeholders={scenario.keyStakeholders} onDraft={text => setActionText(current => current ? current + '\n' + text : text)} />}
+            {isClinic(scenario) && <ClinicConversationPanel key={scenario.id} scenario={scenario} site={siteState} disabled={loading} onSay={text => runEval(text, text, { stayInConversation: true })} />}
             <p className="text-slate-200 mb-4">
               Make the next decision in the story. Describe what you actually say or do based on the continuity scene, current mission status, and information requiring validation.
             </p>
@@ -1741,7 +1745,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
           </div>
           </div>
 
-          <CommandContinuityPanel key={scenario.id} world={worldState} scenarios={missionScenarios} records={missionRecords} scenario={scenario} day={currentDay} onSubmit={recordCommandBrief} />
+          <details className="text-slate-300 mb-6"><summary className="cursor-pointer text-sm">Optional staff reporting practice</summary><p className="text-sm my-3">Use Create a Product for routine field reporting. This optional exercise lets you practice a command recommendation without ending the visit.</p><CommandContinuityPanel key={scenario.id} world={worldState} scenarios={missionScenarios} records={missionRecords} scenario={scenario} day={currentDay} onSubmit={recordCommandBrief} /></details>
 
           {showHints && (
             <div id="optional-next-actions" className="bg-blue-900/20 border border-blue-800 rounded-lg p-4 mb-6 scroll-mt-6">
@@ -1869,8 +1873,8 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
             </div>
           )}
 
-          <div className="bg-slate-800/70 rounded-lg p-5 border border-slate-600 mb-6">
-            <p className="text-slate-200 font-bold">Help improve this response</p>
+          <details className="bg-slate-800/70 rounded-lg p-4 border border-slate-600 mb-6">
+            <summary className="text-slate-200 cursor-pointer">Report a problem (optional)</summary>
             <p className="text-slate-400 text-sm mt-1">Nothing is sent automatically. Flag inaccurate feedback now, then export the playtest report when you are ready.</p>
             {playtestTurns.some(t => t.reviewFlags?.length) && <p className="text-amber-200 text-sm mt-2">Unrecognized details have also been logged automatically in this browser. The exported report includes them alongside your manual flags and original submissions.</p>}
             {!testerFeedbackOpen ? (
@@ -1913,7 +1917,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
               </div>
             )}
             {reportNotice && <p className="text-emerald-300 text-sm mt-3">{reportNotice}</p>}
-          </div>
+          </details>
 
           <div className="grid sm:grid-cols-2 gap-3">
             <button
@@ -1949,6 +1953,18 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
           <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6 text-slate-100 overflow-x-auto">
             <p className="whitespace-pre-wrap mb-6">{lastOutcome.narrativeOutcome}</p>
             {lastOutcome.product.mode !== 'mission-brief' && <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed">{lastOutcome.product.content}</pre>}
+            {lastOutcome.product.mode === 'mission-brief' && <section aria-label="Training product preview" className="bg-slate-100 text-slate-900 rounded p-6 border-l-4 border-blue-600">
+              <p className="text-xs uppercase font-bold">Training product preview · Simplified exercise format</p>
+              <h2 className="text-xl font-bold mt-2">{lastOutcome.product.name}</h2>
+              <dl className="mt-4 space-y-3">
+                <div><dt className="font-bold">Recipient</dt><dd>{lastOutcome.product.recipient}</dd></div>
+                <div><dt className="font-bold">Purpose / requested use</dt><dd className="whitespace-pre-wrap">{lastOutcome.product.purpose}</dd></div>
+                <div><dt className="font-bold">Player assessment — not independently verified</dt><dd className="whitespace-pre-wrap">{lastOutcome.product.keyFinding}</dd></div>
+                <div><dt className="font-bold">Supporting sources and verification</dt><dd>Not supplied in this short-form submission. Refer to the scene record and distinguish reported claims from observations.</dd></div>
+                <div><dt className="font-bold">Follow-up for a full assessment</dt><dd>Identify the source, date, affected population, remaining uncertainty, and recommended next action.</dd></div>
+              </dl>
+              <p className="text-xs mt-5">Learning aid, not an official completed template. Recording this product does not confirm its contents or send it outside the exercise.</p>
+            </section>}
           </div>
 
           {lastOutcome.product.mode === 'mission-brief' ? <section className="bg-green-950/40 border border-green-600 rounded-lg p-5 mb-6 text-white"><h2 className="font-bold text-xl">Mission product recorded</h2><p className="mt-2">Reporting-practice credit recorded once for this site. The recipient, purpose and key finding are saved for leader review. Repeated submissions do not add more credit.</p><p className="text-sm text-green-200 mt-2">A full template and factual accuracy were not assessed. No document was sent outside this exercise.</p></section> : <div className="bg-slate-800 rounded-lg p-4 border border-slate-700 mb-6">

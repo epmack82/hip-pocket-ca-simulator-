@@ -71,6 +71,7 @@ export function applyWorldUpdate(world = {}, update, record = {}) {
     followUpRequests: mergeById(previous.followUpRequests, update.followUpRequests),
     giftResponses: [...(previous.giftResponses || []), ...(update.giftResponses || [])],
     conversationEvents: mergeById(previous.conversationEvents, update.conversationEvents),
+    clinicTurns: mergeById(previous.clinicTurns, update.clinicTurns),
     completedProducts: unique([...(previous.completedProducts || []), ...update.products.accepted]),
     engagedParticipants: unique([...(previous.engagedParticipants || []), ...update.engagedParticipants]),
     conversationTarget: conversation.length ? conversation[conversation.length - 1].target : previous.conversationTarget,
