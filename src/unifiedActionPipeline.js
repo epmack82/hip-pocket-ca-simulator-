@@ -5,6 +5,7 @@ import { parseLocalAction } from './localActionParser';
 import { worksheetCompletion } from './worksheetCompletion';
 import { evaluateOffline } from './offlineEvaluator';
 import { authorMarketReactions, marketFollowUps, marketConversationEvents } from './marketScene';
+import { clinicTurn } from './clinicDialogue';
 
 const severityRank = { none: 0, coaching: 1, concern: 2, serious: 3, critical: 4 };
 const unique = values => [...new Set((values || []).filter(Boolean))];
@@ -143,6 +144,7 @@ export function processUnifiedAction(input = {}, policies = DEFAULT_ACTION_POLIC
   const worldUpdate = reduceFindings(actionRecord, findings, world);
   worldUpdate.followUpRequests = marketFollowUps(actionRecord, worldUpdate);
   worldUpdate.conversationEvents = marketConversationEvents(actionRecord, worldUpdate);
+  worldUpdate.clinicTurns = clinicTurn(actionRecord, worldUpdate);
   if (input.activeLead && worldUpdate.severity === 'none' && worldUpdate.discoveries.length) {
     worldUpdate.leads.changed.push({ ...input.activeLead, status: 'completed' });
     worldUpdate.effects.push('The team records this source visit against the developed lead. The account remains attributed; visiting a second person does not by itself prove the original claim.');

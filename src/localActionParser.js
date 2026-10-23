@@ -36,6 +36,7 @@ export function resolveStakeholders(text, stakeholders = []) {
 }
 
 const definitions = [
+  ['community-event-inquiry', /\b(?:ask|inquire|like to see if|are there|are their|is there|what)\b.{0,100}\b(?:festival|festivals|parties|community events?)\b/],
   ['destruction', /\b(?:set\s+fire\s+to|burn(?:ed|ing)?\s+(?:down\s+)?(?:the|a|this)|torch|destroy|demolish|blow\s+up|detonate|plant\s+(?:c4|explosives?|a\s+bomb)|smash|break\s+(?:all|each|the))\b/],
   ['violence', /\b(?:tomahawk|weapon|gun|rifle|axe)\b.{0,55}\b(?:throw|launch|swing|fire|aim)\b|\b(?:assault|shoot|stab|punch|kick|kill|beat\s+up|attack)\b|\b(?:throw|launch|swing|fire|aim)\b.{0,55}\b(?:tomahawk|weapon|gun|rifle|axe)\b/],
   ['unsafe-equipment', /\b(?:hit|play(?:ing)?\s+with|tamper\s+with|touch|pull|cut|open|climb)\b.{0,90}\b(?:wires?|light\s*bulbs?|electrical|valves?|machinery|controls?|panels?|transformer|tank|fence)\b/],

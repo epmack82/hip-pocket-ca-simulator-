@@ -1,4 +1,6 @@
 import { knowledgeFor, sentenceCase } from './sceneKnowledge';
+import { clinicAnswer } from './clinicConversation';
+import { contextualClinicAnswer } from './clinicDialogue';
 
 const has = (act, kind) => (act.kinds || []).includes(kind);
 const any = (record, kind) => record.understanding.actions.some(act => has(act, kind));
@@ -165,15 +167,19 @@ export function engagementPolicy(record, world = {}) {
       findings.push(credit(record, act, 'supervised-contact', 'With the stated permission and supervision, the activity takes place within the agreed boundaries. ' + who + ' remains present and brings the group back to the engagement afterward.',
         { professionalism: 15, rapport: 15 }, { permissions: ['supervised-contact'] }));
     }
-    if (has(act, 'inquiry') && !has(act, 'permission-request') && !has(act, 'interpreter-substitution')) {
+    if (has(act, 'community-event-inquiry')) findings.push(credit(record, act, 'community-event-inquiry', unavailable
+      ? who + ' cannot complete a reliable exchange while language support remains unavailable. Your question about local events remains open.'
+      : who + ' considers the question. “Are you hoping to meet community members, or looking for a particular gathering? Let us check with the organizers before making plans. A public event and a private celebration are different invitations.”\n\nThe conversation opens a possible avenue for local engagement. No event, invitation, attendance, or improvement in sentiment has been confirmed.', {}));
+    if (has(act, 'inquiry') && !has(act, 'community-event-inquiry') && !has(act, 'permission-request') && !has(act, 'interpreter-substitution')) {
       if (unavailable && !/\b(?:shared language|both speak|approved alternative)\b/i.test(record.rawText)) {
         findings.push(credit(record, act, 'communication-unresolved', who + ' cannot complete a reliable exchange while the interpreter remains excluded. The question is recorded as unanswered.', {}, { coaching: ['Restore language support or establish an approved shared-language arrangement.'] }));
       } else if (act.topic) {
         const prior = (site.claims || []).find(c => c.source === speaker);
+        const clinicReply = contextualClinicAnswer(act.description, record.context, who, site, clinicAnswer(act.description, record.context, who));
         findings.push(credit(record, act, prior ? 'follow-up-inquiry' : 'focused-inquiry',
-          who + ' says, “' + (prior ? speakerKnowledge.reply : speakerKnowledge.claim) + '” ' + (introduced ? '' : 'The host first asks the team to explain its purpose. ') + 'This remains an attributed account, not a confirmed fact.',
+          clinicReply || who + ' says, “' + (prior ? speakerKnowledge.reply : speakerKnowledge.claim) + '” ' + (introduced ? '' : 'The host first asks the team to explain its purpose. ') + 'This remains an attributed account, not a confirmed fact.',
           introduced ? { informationCollection: prior ? 15 : 45, missionFocus: 20, rapport: 10 } : { informationCollection: 20 },
-          { discoveries: [{ id: knowledge.id + ':' + speaker, text: prior ? speakerKnowledge.claim + ' ' + speakerKnowledge.reply : speakerKnowledge.claim, source: speaker, reliability: 'claim' }],
+          { discoveries: [{ id: knowledge.id + ':' + speaker, text: clinicReply || (prior ? speakerKnowledge.claim + ' ' + speakerKnowledge.reply : speakerKnowledge.claim), source: speaker, reliability: 'claim' }],
             gaps: { opened: [knowledge.issue], advanced: [], resolved: [] },
             leads: /\b(?:who else|source|depend|connect|lead|responsib|other)\w*\b/.test(act.description) && record.context.lead
               ? { opened: [{ ...record.context.lead, status: 'open' }], changed: [] } : undefined }));

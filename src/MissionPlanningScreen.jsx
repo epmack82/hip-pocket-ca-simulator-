@@ -32,7 +32,7 @@ export default function MissionPlanningScreen({ scenarios, records, sites, conse
         </section>
         {chiefPlan?.completed && <details className="bg-slate-800 text-slate-200 rounded-lg p-4"><summary className="cursor-pointer font-bold">Your pre-deployment recommendation</summary><p className="mt-3 whitespace-pre-wrap">{chiefPlan.rationale}</p><p className="text-sm mt-2">Use the full plan in your leader report to compare your initial intent with what unfolded.</p></details>}
         <CampaignMap scenarios={scenarios} records={records} selected={selected} onSelect={onSelect} visitLimit={visitLimit} sites={sites} commandTargets={commandTargets} />
-        <CommandContinuityPanel world={world} scenarios={scenarios} records={records} day={day} onSubmit={onCommandBrief} />
+        <details className="text-slate-200 border border-slate-700 rounded-lg p-4"><summary className="cursor-pointer font-semibold">Command coordination — optional planning brief</summary><CommandContinuityPanel world={world} scenarios={scenarios} records={records} day={day} onSubmit={onCommandBrief} /></details>
 
         {consequences.length > 0 && <section className="bg-red-950/40 border border-red-800 rounded-lg p-5" aria-label="Continuing mission consequences">
           <h2 className="text-red-200 font-bold">The mission carries forward</h2>
@@ -51,14 +51,13 @@ export default function MissionPlanningScreen({ scenarios, records, sites, conse
         </section>}
 
         <fieldset>
-          <legend className="text-white text-2xl font-bold mb-2">Where will you go{records.length ? ' next' : ' first'}?</legend>
+          <legend className="text-white text-2xl font-bold mb-2">Selected destination brief</legend>
           <p className="text-slate-400 text-sm mb-4">Preliminary reporting only. What you find on arrival may differ.</p>
           <div className="grid md:grid-cols-2 gap-4" data-testid="remaining-sites">
-            {choices.map(({ scenario }) => {
+            {choices.filter(({ scenario }) => scenario.id === selected).map(({ scenario }) => {
               const brief = siteOrientation(scenario);
               return <label key={scenario.id} className={`block cursor-pointer rounded-lg border-2 p-5 transition-colors focus-within:ring-2 focus-within:ring-blue-300 ${selected === scenario.id ? 'border-blue-400 bg-blue-950/60' : 'border-slate-700 bg-slate-800 hover:border-slate-500'}`}>
                 <div className="flex items-start gap-3">
-                  <input className="mt-1 accent-blue-500" type="radio" name="destination" value={scenario.id} checked={selected === scenario.id} onChange={() => onSelect(scenario.id)} aria-label={`Visit ${scenario.location} — ${scenario.name.split(' — ')[0]}`} />
                   <div><h3 className="text-white text-lg font-bold capitalize">{scenario.location}</h3><p className="text-blue-200 text-xs mt-1">{scenario.name.split(' — ')[0]}</p></div>
                 </div>
                 <p className="text-slate-200 mt-4 text-sm leading-relaxed">{brief.report}</p>

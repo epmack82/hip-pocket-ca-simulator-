@@ -24,6 +24,11 @@ const text = () => container.textContent;
 function click(label) {
   const buttons = [...container.querySelectorAll('button')];
   const button = buttons.find(el => el.textContent.trim() === label) || buttons.find(el => el.textContent.trim().startsWith(label));
+  // Clinic dialogue stays in the scene rather than requiring an outcome-page hop.
+  if (!button && label === 'Continue Scene' && container.querySelector('[aria-label="Clinic conversation"]')) {
+    expect(container.querySelector('[aria-label="Clinic conversation journal"] article')).not.toBeNull();
+    return;
+  }
   if (!button) throw new Error('Missing button: ' + label + '\n' + text().slice(0, 1600));
   act(() => button.dispatchEvent(new MouseEvent('click', { bubbles: true })));
 }
@@ -48,11 +53,27 @@ function start(planningOnly = false) {
 }
 function submit(value) { enter(container.querySelector('textarea'), value); click('Submit Action'); }
 
+test('clinic dialogue choices stay in scene and journal survives save/reload', () => {
+  start(true);
+  const radio = [...container.querySelectorAll('input[name="destination"]')].find(el => /clinic/i.test(el.getAttribute('aria-label')));
+  expect(radio).toBeDefined();
+  act(() => Simulate.change(radio));
+  click('Travel to Selected Site');
+  expect(container.querySelector('[aria-label="Clinic conversation"]')).not.toBeNull();
+  click('What has changed here?');
+  expect(container.querySelector('[aria-label="Clinic conversation journal"] article')).not.toBeNull();
+  expect(text()).toContain('Revisit earlier topic');
+  click('Save & Exit'); click('Load');
+  expect(text()).toContain('Revisit earlier topic');
+  expect(container.querySelector('[aria-label="Clinic conversation journal"]').textContent).toContain('current service conditions');
+  expect(global.fetch).not.toHaveBeenCalled();
+});
+
 test('market map selection, named hosts and open requests persist through app save/load', () => {
   start(true);
   const marker = container.querySelector('.atlas-node');
   act(() => marker.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-  expect(marker.getAttribute('aria-pressed')).toBe('true');
+  expect(marker.classList.contains('is-selected')).toBe(true);
   expect(container.querySelector('input[name="destination"]').checked).toBe(true);
   click('Travel to Selected Site');
   expect(container.querySelector('img[src="/art/market-arrival-v1.png"]')).not.toBeNull();
@@ -100,7 +121,7 @@ test('command brief follows the chosen destination, survives save/load and can b
   click('Travel to Selected Site');
   expect(text()).toContain('This visit connects to your earlier brief');
   submit(`I ask the ${destination.keyStakeholders[0]} about current service conditions.`);
-  click('Continue Scene');
+  if (!container.querySelector('[aria-label="Clinic conversation"]')) click('Continue Scene');
   expect(text()).toContain('New material available');
   click('Revise command-1');
   enter(container.querySelector('[data-testid="command-recommendation"]'), 'Request a review of the two accounts before committing assistance.');

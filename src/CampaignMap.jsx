@@ -12,9 +12,10 @@ export default function CampaignMap({ scenarios, records, selected, onSelect, vi
         const Icon = symbols[scenario.metadata?.site] || MapPin;
         const leads = (sites[scenario.id]?.leads || []).filter(l => l.status === 'open').length;
         const [place, ...area] = scenario.location.split(',');
-        return <button key={scenario.id} className="atlas-node" disabled={readOnly || visited.has(scenario.id)} onClick={() => onSelect(scenario.id)} aria-pressed={selected === scenario.id} aria-label={`${i + 1}. ${scenario.location}. ${selected === scenario.id && readOnly ? 'Current location' : visited.has(scenario.id) ? 'Concluded' : 'Available'}`}>
+        return <label key={scenario.id} className={`atlas-node${selected === scenario.id ? ' is-selected' : ''}`} onClick={() => { if (!readOnly && !visited.has(scenario.id)) onSelect(scenario.id); }}>
+          <input type="radio" name={!readOnly && !visited.has(scenario.id) ? 'destination' : undefined} value={scenario.id} disabled={readOnly || visited.has(scenario.id)} checked={selected === scenario.id} onChange={() => onSelect(scenario.id)} aria-label={`Visit ${scenario.location} — ${scenario.name.split(' — ')[0]}`} />
           <span className="atlas-node-top"><Icon size={23} aria-hidden="true"/><b>{String(i + 1).padStart(2, '0')}</b></span><span className="atlas-node-title">{place}</span><span className="atlas-node-subtitle">{area.join(',')}</span><span className="atlas-node-status">{visited.has(scenario.id) ? '✓ Concluded' : selected === scenario.id ? '● Selected · 1 visit slot' : '○ Available · 1 visit slot'}{leads ? ` · ${leads} open lead${leads === 1 ? '' : 's'} recorded here` : ''}{commandTargets.includes(scenario.id) ? ' · Command brief follow-up' : ''}</span>
-        </button>;
+        </label>;
       })}</div>
     </div>
     <footer className="atlas-legend"><span>○ Available</span><span>● Selected</span><span>✓ Concluded</span><span>Only recorded leads are shown</span></footer>
