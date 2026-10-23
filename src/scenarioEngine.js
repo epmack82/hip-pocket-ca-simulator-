@@ -49,7 +49,9 @@ const DATA = {
     ['competing organizations duplicating effort', 'Another organization announces a conflicting plan without consulting local officials.'],
     ['deep host-nation distrust of outside assistance', "A stakeholder challenges the team's motives in front of the group."],
     ['unequal access for a vulnerable population', 'The team learns that one group cannot safely reach the service site.'],
-    ['outdated and incomplete civil data', 'The official population estimate is contradicted by recent movement reports.']
+    ['outdated and incomplete civil data', 'The official population estimate is contradicted by recent movement reports.'],
+    ['uncertain interpreter accuracy', 'The interpreter gives a brief answer after a much longer exchange, and a stakeholder reacts as though the team expressed frustration.'],
+    ['force-protection information request', 'The interpreter quietly reports repeated messages asking for the team’s whereabouts, next meeting, route, and names of local contacts.']
   ]
 };
 
@@ -85,7 +87,7 @@ const SITE_CONTEXT = {
   irrigation: {
     stakeholders: ['irrigation cooperative chair', 'canal maintenance supervisor', 'smallholder farmer representative', 'district agricultural officer'],
     opening: 'A narrow canal cuts through dry fields toward the irrigation cooperative, its waterline visibly below the stain marks on the concrete. Several farmers have gathered near a locked control gate.',
-    welcome: 'The cooperative chair walks out to meet you carrying allocation sheets marked with recent corrections.',
+    welcome: 'The irrigation cooperative chair walks out to meet you carrying allocation sheets marked with recent corrections.',
     line: 'There is enough water on paper. The fields are telling a different story.',
     secondReason: 'has come because water allocations directly affect the next planting cycle'
   },
@@ -151,25 +153,42 @@ export function createMissionSeed() {
   return `HIP-${bytes[0].toString(36)}-${bytes[1].toString(36)}`.toUpperCase();
 }
 
-export function generateScenario(seed, { day = 1, duration = 3, role = 'sgt' } = {}) {
+export function generateScenario(seed, { day = 1, duration = 3, role = 'sgt', featuredMarket = false } = {}) {
   const normalized = String(seed).trim().toUpperCase();
   if (!normalized) throw new Error('Scenario seed is required');
   const rng = randomFor(`${normalized}|${role}`);
-  const geography = pick(DATA.geographies, rng);
+  const geography = pick(featuredMarket ? DATA.geographies.filter(g => g[0] !== 'industrial') : DATA.geographies, rng);
   const validSites = DATA.sites.filter(site => site[3] === '*' || site[3].split(',').includes(geography[0]));
-  const site = pick(validSites, rng);
+  const site = featuredMarket ? DATA.sites.find(s => s[0] === 'market') : pick(validSites, rng);
   const relatedSite = pick(validSites.filter(candidate => candidate[0] !== site[0]), rng);
   const environment = pick(DATA.environments, rng);
   const mission = pick(DATA.missions, rng);
   const difficulty = role === 'chief' ? 4 : role === 'sgt' ? 3 : role === 'canco' ? 2 : 1;
   const siteContext = SITE_CONTEXT[site[0]];
-  const localStakeholders = sample(siteContext.stakeholders, Math.min(2 + difficulty, 4), rng);
+  const sampledStakeholders = sample(siteContext.stakeholders, Math.min(2 + difficulty, 4), rng);
+  const localStakeholders = featuredMarket ? ['market association chair', 'transport cooperative representative', ...sampledStakeholders.filter(s => !['market association chair', 'transport cooperative representative'].includes(s))].slice(0, Math.min(2 + difficulty, 4)) : sampledStakeholders;
   const supplementalStakeholders = sample(DATA.stakeholders.filter(name => !localStakeholders.includes(name)), 1, rng);
   const stakeholders = [...localStakeholders, ...supplementalStakeholders].slice(0, Math.min(2 + difficulty, 5));
   const complications = sample(DATA.complications, Math.min(1 + Math.floor(difficulty / 2), 3), rng);
+  let primaryInterpreterComplication =
+    complications[0][0] === 'uncertain interpreter accuracy' || complications[0][0] === 'force-protection information request';
+  // Interpreter injects are occasional awareness events, not a recurring trap.
+  // They activate only when the opening narrative visibly presents the cue.
+  if (primaryInterpreterComplication && rng() >= 0.6) {
+    const selectedLabels = new Set(complications.map(item => item[0]));
+    const ordinaryComplications = DATA.complications.filter(item =>
+      item[0] !== 'uncertain interpreter accuracy' &&
+      item[0] !== 'force-protection information request' &&
+      !selectedLabels.has(item[0])
+    );
+    complications[0] = pick(ordinaryComplications, rng);
+    primaryInterpreterComplication = false;
+  }
+  const interpreterComplication = primaryInterpreterComplication ? complications[0] : null;
   const complexityMultiplier = 1 + (day / duration) * 0.4;
   const standard = `Assess the ${site[1]} using ASCOPE and PMESII-PT; distinguish facts, assumptions, and information gaps; validate reporting with more than one source; document civil vulnerabilities, local capabilities, and recommended follow-on actions.`;
-  const opening = `${siteContext.opening} ${siteContext.welcome}\n\n“${siteContext.line}” Nearby, the ${stakeholders[1]} ${siteContext.secondReason}. ${complications[0][1]}`;
+  const welcome = siteContext.welcome.replace(siteContext.stakeholders[0], stakeholders[0]);
+  const opening = `${siteContext.opening} ${welcome}\n\n“${siteContext.line}” Nearby, the ${stakeholders[1]} ${siteContext.secondReason}. ${complications[0][1]}`;
   return {
     id: normalized,
     seed: normalized,
@@ -192,13 +211,28 @@ export function generateScenario(seed, { day = 1, duration = 3, role = 'sgt' } =
       originLocation: site[1],
       returnPrompt: `The information from the ${relatedSite[1]} changes how the team understands conditions at the ${site[1]}. You will need to decide what is confirmed, what remains only a claim, and whether the original stakeholders should be re-engaged.`
     },
-    suggestedProducts: [`${site[1]} Site Assessment`, 'Post-KLE Report', 'Daily SITREP', 'CA Operations Report (CAOPREP)', 'Link Diagram', 'Stakeholder Baseball Card', 'ASCOPE Worksheet', 'PMESII-PT Worksheet'],
+    suggestedProducts: [`${site[1]} Site Assessment`, 'Post-KLE Report', 'Daily SITREP', 'CA Operations Report (CAOPREP)', 'Link Diagram', 'Stakeholder Baseball Card', 'ASCOPE Worksheet', 'PMESII-PT Worksheet', 'Inspector General Action Request (DA Form 1559)'],
     referenceStandards: {
       planned: `PLANNED ASSESSMENT: ${standard} Produce a comprehensive assessment and coordination recommendation.`,
       deliberate: `DELIBERATE ASSESSMENT: ${standard} Record the most significant limitations and route them appropriately.`,
       initial: `INITIAL ASSESSMENT: Establish a reliable baseline, identify urgent concerns, and define requirements for follow-on collection.`
     },
     injects: complications.map((item, index) => ({ id: `${normalized}-${index + 1}`, text: item[1] })),
+    interpreterInject: interpreterComplication
+      ? interpreterComplication[0] === 'uncertain interpreter accuracy'
+        ? {
+            type: 'accuracy',
+            status: 'unresolved',
+            cue: interpreterComplication[1],
+            learningObjective: 'Recognize possible meaning loss without assuming deception; use respectful confirmation, short phrasing, back-translation, observation, and independent validation.'
+          }
+        : {
+            type: 'force-protection',
+            status: 'unresolved',
+            cue: interpreterComplication[1],
+            learningObjective: 'Protect need-to-know information, avoid accusatory conclusions, document the request, and elevate the concern through the appropriate force-protection or command channel.'
+          }
+      : null,
     day,
     complexityMultiplier,
     difficultyContext: day === 1 ? 'Introduction' : day === duration ? 'Final Assessment' : 'Ongoing',
@@ -260,16 +294,17 @@ export function summarizeMissionCoverage(scenarios) {
   };
 }
 
-export function generateMission({ seed, days, role }) {
+export function generateMission({ seed, days, role, candidateCount = days, includeMarket = false }) {
   if (!Number.isInteger(days) || days < 1 || days > 29) throw new Error('Mission length must be between 1 and 29 days');
+  if (!Number.isInteger(candidateCount) || candidateCount < 1 || candidateCount > 60) throw new Error('Invalid destination pool');
   const selected = [];
-  for (let index = 0; index < days; index += 1) {
+  for (let index = 0; index < candidateCount; index += 1) {
     const day = index + 1;
     const daySeed = `${seed}-DAY-${day}`;
     const candidates = Array.from({ length: 96 }, (_, candidateIndex) =>
       generateScenario(`${daySeed}-OPTION-${candidateIndex + 1}`, { day, duration: days, role })
     );
-    const chosen = candidates.reduce((best, candidate) =>
+    const chosen = includeMarket && index === 0 ? generateScenario(`${daySeed}-MARKET`, { day, duration: days, role, featuredMarket: true }) : candidates.reduce((best, candidate) =>
       candidatePenalty(candidate, selected) < candidatePenalty(best, selected) ? candidate : best
     );
     selected.push({

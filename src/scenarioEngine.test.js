@@ -67,3 +67,22 @@ test('school scenes begin with school-relevant stakeholders and a grounded scene
   expect(schoolStakeholders).toContain(school.keyStakeholders[1]);
   expect(school.narrative).toContain('classroom');
 });
+
+test('interpreter injects are occasional and always visibly cued in the opening narrative', () => {
+  const scenarios = Array.from({ length: 600 }, (_, index) => generateScenario(`HIP-INTERPRETER-${index}`));
+  const interpreterScenarios = scenarios.filter(scenario => scenario.interpreterInject);
+  const rate = interpreterScenarios.length / scenarios.length;
+
+  expect(rate).toBeGreaterThan(0.05);
+  expect(rate).toBeLessThan(0.16);
+  interpreterScenarios.forEach(scenario => {
+    expect(scenario.narrative).toContain(scenario.interpreterInject.cue);
+  });
+});
+
+test('the opening host matches the participant selected by the engine', () => {
+  for (let i = 0; i < 80; i++) {
+    const scenario = generateScenario('HOST-CONSISTENCY-' + i);
+    expect(scenario.narrative.split('\n\n')[0]).toContain(scenario.keyStakeholders[0]);
+  }
+});

@@ -1,16 +1,31 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronRight, Send, Package, ArrowRight, Loader2, AlertCircle, RotateCcw, Trash2 } from 'lucide-react';
 import { createMissionSeed, generateMission, summarizeMissionCoverage } from './scenarioEngine';
-import { createOfflineDebrief, evaluateOffline } from './offlineEvaluator';
-import { advanceSiteState, createSiteState, DIMENSIONS, followLead, siteStatusSummary } from './siteProgression';
-import { getProductWorksheet } from './productTemplates';
+import { buildValidationBrief, createSiteState, siteStatusSummary } from './siteProgression';
+import MissionProductDialog from './MissionProductDialog';
+import SubmissionReceipt from './SubmissionReceipt';
 import { getKnowledgeQuestions, gradeKnowledgeQuestions } from './knowledgeChecks';
 import { teamHuddleNarrative } from './teamNarrative';
-import { discoverLead, evaluateLeadInvestigation } from './leadEngine';
-import { applyConsequenceRules, consequenceSummary } from './consequenceEngine';
 import { firstAvailableSaveSlot, saveConfirmation } from './saveManager';
-import { applyActionOrderRules, currentContinuityNarrative } from './continuityEngine';
-import { buildDecisionTimeline, buildEngagementProfile } from './engagementProfile';
+import { currentContinuityNarrative } from './continuityEngine';
+import { buildDecisionTimeline } from './engagementProfile';
+import { determineMissionDisposition } from './missionOutcome';
+import { recommendTrainingRecognition } from './awardRecommendation';
+import { ELIGIBILITY_REFERENCES, gradeAwardPractice, RECOGNITION_LEVELS } from './awardEducation';
+import { buildPlaytestReport, createPlaytestTurn, reportFilename, updateTurnFeedback } from './playtestReport';
+import { processUnifiedAction, outcomeFromTurn } from './unifiedActionPipeline';
+import { migrateWorldState, SCORE_DIMENSIONS } from './worldUpdate';
+import { APP_VERSION, buildPerformanceReport, performanceReportHtml, performanceDebrief, downloadFile } from './performanceReport';
+import { siteOrientation, remainingSites } from './missionPlanning';
+import MissionPlanning from './MissionPlanningScreen';
+import StudyPractice from './StudyPracticeScreen';
+import ClassroomOpordScreen from './ClassroomOpordScreen';
+import CommandContinuityPanel, { CommandArrivalNote } from './CommandContinuityPanel';
+import { submitCommandBrief } from './commandContinuity';
+import { CAMPAIGNS, campaignDay, campaignTradeoffs, emptyChiefPlan } from './campaign';
+import ChiefPlanningScreen from './ChiefPlanningScreen';
+import MarketScenePanel, { ConversationPanel, FollowUpNotes } from './MarketScenePanel';
+import { isMarket } from './marketScene';
 
 // ===== SCENARIO DATA (MOVED OUTSIDE COMPONENT) =====
 // Retained temporarily for save migration reference; new missions use scenarioEngine.js.
@@ -100,6 +115,8 @@ export default function HipPocketV43() {
   const [operator, setOperator] = useState({ name: '', callsign: '' });
   const [playerRole, setPlayerRole] = useState(null); // 'specialist'|'canco'|'sgt'|'chief'
   const [missionDuration, setMissionDuration] = useState(null); // 3|7|14|29
+  const [visitLimit, setVisitLimit] = useState(3);
+  const [chiefPlan, setChiefPlan] = useState(emptyChiefPlan);
   const [missionSeed, setMissionSeed] = useState('');
   const [trainingPersonalization, setTrainingPersonalization] = useState(DEFAULT_TRAINING_PERSONALIZATION);
   const [saveSlots, setSaveSlots] = useState([null, null, null, null, null]); // Load from localStorage
@@ -110,6 +127,9 @@ export default function HipPocketV43() {
   const [scenarioLog, setScenarioLog] = useState([]);
   const [scenarioRecord, setScenarioRecord] = useState(null);
   const [missionRecords, setMissionRecords] = useState([]);
+  const [routeDecisions, setRouteDecisions] = useState([]);
+  const [planningSelection, setPlanningSelection] = useState('');
+  const [planningRationale, setPlanningRationale] = useState('');
   const [allProducts, setAllProducts] = useState([]);
   const [siteStates, setSiteStates] = useState({});
   const [currentSaveSlot, setCurrentSaveSlot] = useState(0); // Which slot is this game saved to
@@ -126,10 +146,6 @@ export default function HipPocketV43() {
   // ===== UI STATE =====
   const [actionText, setActionText] = useState('');
   const [showProductPanel, setShowProductPanel] = useState(false);
-  const [selectedProductType, setSelectedProductType] = useState(null);
-  const [customProductMode, setCustomProductMode] = useState(false);
-  const [customProductText, setCustomProductText] = useState('');
-  const [productDetails, setProductDetails] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -148,26 +164,46 @@ export default function HipPocketV43() {
   const [missionConsequences, setMissionConsequences] = useState([]);
   const [saveNotice, setSaveNotice] = useState('');
   const [readinessResults, setReadinessResults] = useState({});
+  const [awardPractice, setAwardPractice] = useState({ level: '', achievement: '', impact: '', scope: '', support: '' });
+  const [awardPracticeResult, setAwardPracticeResult] = useState(null);
+  const [playtestTurns, setPlaytestTurns] = useState([]);
+  const [testerFeedbackOpen, setTesterFeedbackOpen] = useState(false);
+  const [testerFeedback, setTesterFeedback] = useState({ categories: [], expectedResponse: '', notes: '' });
+  const [reportNotice, setReportNotice] = useState('');
+  const [worldState, setWorldState] = useState(() => migrateWorldState());
+  const [sessionId, setSessionId] = useState('');
+  const [sessionStartedAt, setSessionStartedAt] = useState(null);
+  const [sessionCompletedAt, setSessionCompletedAt] = useState(null);
 
   // ===== LOAD SAVES FROM LOCALSTORAGE ON MOUNT =====
   useEffect(() => {
-    const savedSlots = JSON.parse(localStorage.getItem('hipPocket_saves') || 'null');
-    if (savedSlots) {
-      setSaveSlots(savedSlots);
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [screen]);
+
+  useEffect(() => {
+    try {
+      const savedSlots = JSON.parse(localStorage.getItem('hipPocket_saves') || 'null');
+      if (Array.isArray(savedSlots)) setSaveSlots([...savedSlots.slice(0, 5), ...Array(5).fill(null)].slice(0, 5));
+    } catch {
+      setSaveNotice('A saved mission could not be read. It has not been deleted; export your browser data before clearing it.');
     }
   }, []);
+
+  useEffect(() => {
+    if (missionSeed && playtestTurns.length) {
+      localStorage.setItem(`hipPocket_playtest_${missionSeed}`, JSON.stringify(playtestTurns));
+    }
+  }, [missionSeed, playtestTurns]);
 
   // ===== SEEDED OFFLINE SCENARIO ENGINE =====
   const [missionScenarios, setMissionScenarios] = useState([]);
   
-  useEffect(() => {
-    if (playerRole && missionDuration && missionSeed) {
-      setMissionScenarios(generateMission({ seed: missionSeed, days: missionDuration, role: playerRole }));
-    }
-  }, [playerRole, missionDuration, missionSeed]);
+  // Generate only when explicitly starting a mission. Loading a save must not
+  // regenerate its destination pool or invalidate recorded site IDs.
 
   function currentScenario() {
-    return missionScenarios[scenarioIndex] || {};
+    const scenario = missionScenarios[scenarioIndex];
+    return scenario ? { ...scenario, day: currentDay } : {};
   }
 
   function personalizedRegion() {
@@ -196,8 +232,7 @@ export default function HipPocketV43() {
   };
 
   function getComplexityMultiplier() {
-    const scenario = currentScenario();
-    return scenario.complexityMultiplier || 1.0;
+    return missionDuration ? 1 + (currentDay / missionDuration) * 0.4 : 1;
   }
 
   function getFinalDifficultyMultiplier() {
@@ -207,11 +242,13 @@ export default function HipPocketV43() {
   }
 
   // ===== PHASE 3: PERSISTENCE =====
-  function saveGame(slotNumber = currentSaveSlot) {
+  function saveGame(slotNumber = currentSaveSlot, overrides = {}) {
     const saveData = {
       operator,
       playerRole,
       missionDuration,
+      visitLimit,
+      chiefPlan,
       missionSeed,
       trainingPersonalization,
       missionScenarios,
@@ -220,13 +257,27 @@ export default function HipPocketV43() {
       scenarioLog,
       scenarioRecord,
       missionRecords,
+      routeDecisions,
+      planningSelection,
+      planningRationale,
       allProducts,
       siteStates,
       activeLead,
       relationships,
       missionConsequences,
       readinessResults,
-      timestamp: new Date().toISOString()
+      playtestTurns,
+      worldState,
+      sessionId,
+      sessionStartedAt,
+      sessionCompletedAt,
+      debrief,
+      screen,
+      lastOutcome,
+      pendingAdvance,
+      leadReturnPending,
+      timestamp: new Date().toISOString(),
+      ...overrides
     };
     const newSlots = [...saveSlots];
     newSlots[slotNumber] = saveData;
@@ -235,9 +286,6 @@ export default function HipPocketV43() {
     return saveData;
   }
 
-  function autoSave() {
-    saveGame(currentSaveSlot);
-  }
 
   function beginNewGame() {
     const availableSlot = firstAvailableSaveSlot(saveSlots);
@@ -245,7 +293,11 @@ export default function HipPocketV43() {
       setSaveNotice('All five save slots are occupied. Delete a save before starting a new mission.');
       return;
     }
+    resetGame();
     setCurrentSaveSlot(availableSlot);
+    setSessionId(window.crypto?.randomUUID?.() || `session-${Date.now()}`);
+    setSessionStartedAt(new Date().toISOString());
+    setSessionCompletedAt(null);
     setSaveNotice(`New mission reserved in Save Slot ${availableSlot + 1}.`);
     setScreen('characterCreation');
   }
@@ -262,22 +314,37 @@ export default function HipPocketV43() {
     setOperator(save.operator);
     setPlayerRole(save.playerRole);
     setMissionDuration(save.missionDuration);
+    setVisitLimit(save.visitLimit || save.missionScenarios?.length || save.missionDuration);
+    setChiefPlan(save.chiefPlan || emptyChiefPlan());
     setMissionSeed(save.missionSeed || `LEGACY-${new Date(save.timestamp).getTime()}`);
     setTrainingPersonalization(save.trainingPersonalization || DEFAULT_TRAINING_PERSONALIZATION);
-    if (save.missionScenarios) setMissionScenarios(save.missionScenarios);
+    setMissionScenarios(save.missionScenarios || generateMission({ seed: save.missionSeed || `LEGACY-${new Date(save.timestamp).getTime()}`, days: save.missionDuration, role: save.playerRole }));
     setCurrentDay(save.currentDay);
     setScenarioIndex(save.scenarioIndex);
     setScenarioLog(save.scenarioLog);
     setScenarioRecord(save.scenarioRecord);
     setMissionRecords(save.missionRecords);
+    setRouteDecisions(save.routeDecisions || []);
+    setPlanningSelection(save.planningSelection || '');
+    setPlanningRationale(save.planningRationale || '');
     setAllProducts(save.allProducts || []);
     setSiteStates(save.siteStates || {});
     setActiveLead(save.activeLead || null);
     setRelationships(save.relationships);
     setMissionConsequences(save.missionConsequences || []);
     setReadinessResults(save.readinessResults || {});
+    setPlaytestTurns(save.playtestTurns || []);
+    setWorldState(migrateWorldState({ world: save.worldState, siteStates: save.siteStates, relationships: save.relationships, missionConsequences: save.missionConsequences }));
+    setSessionId(save.sessionId || `legacy-${save.missionSeed || slotNumber}`);
+    setSessionStartedAt(save.sessionStartedAt || null);
+    setSessionCompletedAt(save.sessionCompletedAt || null);
+    setDebrief(save.debrief || null);
+    setLastOutcome(save.lastOutcome || null);
+    setPendingAdvance(save.pendingAdvance || false);
+    setLeadReturnPending(save.leadReturnPending || false);
     setCurrentSaveSlot(slotNumber);
-    setScreen('scenarioScreen');
+    const preparation = ['chiefPlanning', 'annexKBriefing', 'teamHuddle', 'readinessCheck', 'missionBriefing', 'missionPlanning'];
+    setScreen(save.debrief ? 'debrief' : save.worldState?.missionOutcome?.terminated ? 'missionFailure' : preparation.includes(save.screen) ? save.screen : save.lastOutcome && ['outcomeDisplay', 'productDisplay'].includes(save.screen) ? save.screen : save.pendingAdvance && save.lastOutcome ? 'outcomeDisplay' : 'scenarioScreen');
   }
 
   function deleteSave(slotNumber) {
@@ -290,7 +357,7 @@ export default function HipPocketV43() {
   function getSaveDescription(save) {
     if (!save) return null;
     const scenario = save.missionScenarios?.[save.scenarioIndex];
-    const location = scenario?.location || 'Legacy mission';
+    const location = save.screen === 'missionPlanning' ? 'Mission planning — choose next location' : scenario?.location || 'Legacy mission';
     const role = save.playerRole.charAt(0).toUpperCase() + save.playerRole.slice(1);
     const mins = Math.floor((Date.now() - new Date(save.timestamp).getTime()) / 60000);
     const timeAgo = mins < 60 ? `${mins}m ago` : `${Math.floor(mins/60)}h ago`;
@@ -303,228 +370,184 @@ export default function HipPocketV43() {
     };
   }
 
-  // ===== API CALL (UNCHANGED) =====
-  async function callClaude(systemPrompt, userMsg) {
-    try {
-      const response = await fetch('https://hip-pocket-api.onrender.com/api/evaluate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ systemPrompt, userMsg })
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'API error');
-      }
-      return data;
-    } catch (error) {
-      console.warn('Cloud evaluation unavailable; using offline evaluator.', error);
-      return evaluateOffline(userMsg, currentScenario());
-    }
-  }
-
-  // ===== CONTEXT BUILDERS =====
-  function buildContextBlock() {
+  function applyTurn(turn, summaryLabel) {
     const scenario = currentScenario();
-    const complexity = getComplexityMultiplier();
-    const roleDesc = {
-      'specialist': 'You are a CA Specialist — junior role, here to observe and learn.',
-      'canco': 'You are a Civil Affairs NCO (CANCO) — responsible for tactical CA execution.',
-      'sgt': 'You are a Team Sergeant — responsible for team mission success and NCO oversight.',
-      'chief': 'You are the Team Chief — fully responsible for team mission success and all CA decisions.'
-    }[playerRole];
-
-    return `
-CIVIL AFFAIRS TRAINING SCENARIO — Hip Pocket v4.3
-${roleDesc}
-
-SCENARIO: ${scenario.name}
-LOCATION: ${scenario.location}
-DAY: ${currentDay} of ${missionDuration}
-MISSION DAY CONTEXT: ${scenario.difficultyContext}
-
-HADR FOCUS: ${scenario.hadrFocus}
-
-NARRATIVE:
-${scenario.narrative}
-
-KEY STAKEHOLDERS: ${scenario.keyStakeholders.join(', ')}
-SUGGESTED PRODUCTS: ${scenario.suggestedProducts.join(', ')}
-
-REFERENCE STANDARDS (STP 41-38B34 Assessment Tiers):
-PLANNED: ${scenario.referenceStandards.planned}
-DELIBERATE: ${scenario.referenceStandards.deliberate}
-INITIAL: ${scenario.referenceStandards.initial}
-
-CURRENT RELATIONSHIPS:
-${Object.entries(relationships).map(([name, value]) => `- ${name}: ${value}/100`).join('\n')}
-
-ACTIVE MISSION CONSEQUENCES:
-${missionConsequences.length ? consequenceSummary(missionConsequences) : '(none)'}
-
-ASSESSMENT DIFFICULTY MULTIPLIER: ${complexity.toFixed(2)}x
-(Higher = stricter grading expectations for this day/role combination)
-`;
-  }
-
-  function priorLogBlock() {
-    if (scenarioLog.length === 0) return '';
-    return `\nPRIOR ACTIONS THIS SCENARIO:\n${scenarioLog.map(l => `- ${l}`).join('\n')}\n`;
-  }
-
-  // ===== EVAL SYSTEM PROMPT (UPDATED FOR v4.3) =====
-  const EVAL_SYSTEM_PROMPT = `You are an experienced Civil Affairs training evaluator for the US Army. You evaluate trainee actions in a realistic HADR civil assessment scenario. Respond ONLY with valid JSON, no markdown.
-
-Your evaluation accounts for:
-1. STP 41-38B34 performance standards (PLANNED: 6 measures, DELIBERATE: 7 measures, INITIAL: 4 measures)
-2. Assessment quality based on ASCOPE/PMESII-PT framework
-3. Appropriate routing per FM 3-57 CNDE rules: threat networks→S-2, sustainment networks→S-4, targeting→S-3, general civil data→CIM Cell/S-9, NGOs→S-3+S-9
-4. Annex citations: Annex K (CAO), Annex P (Host-Nation Support), Annex V (Interagency)
-5. Relationship shifts based on engagement quality
-
-DIFFICULTY ADJUSTMENT: Apply the difficulty multiplier from the scenario context. A trainee scoring 70 at 1.0x would score 56 at 1.2x (higher multiplier = stricter evaluation). At 0.8x, they'd score 84 (more generous).
-
-RESPONSE JSON FORMAT (always include these fields):
-{
-  "narrativeOutcome": "2-3 sentences describing immediate consequence of this action",
-  "qualityScore": <0-100 based on assessment standard and difficulty multiplier>,
-  "assessmentType": "PLANNED|DELIBERATE|INITIAL|OTHER",
-  "performanceMeasures": <count of measures met for the assessed type>,
-  "relationshipShifts": {"Name": -5 to +10},
-  "annexCitation": "K|P|V|multiple|none",
-  "routingRationale": "brief routing explanation",
-  "product": {
-    "name": "Product Name",
-    "type": "Assessment|KLE|Memo|Plan|Other",
-    "content": "core content (2-3 sentences)",
-    "recipient": "S-2|S-3|S-4|S-9|CIM Cell|Other",
-    "citationStandard": "ATP 3-57.50|other doctrine"
-  } OR null,
-  "feedbackTone": "encouraging|neutral|direct" <-- match role expectations
-}`;
-
-  function applyResult(result, summaryLabel, userMsg = '') {
-    const scenario = currentScenario();
-    const consequenceApplication = applyConsequenceRules(result, userMsg, scenario, missionConsequences);
-    const consequenceAdjustedResult = applyActionOrderRules(
-      consequenceApplication.result,
-      currentSiteState(),
-      summaryLabel,
-      scenario
-    );
-    setMissionConsequences(consequenceApplication.consequences);
-    const evaluatorLead = (consequenceAdjustedResult.progress?.leads || []).find(lead => lead.id === scenario.lead?.id);
-    const earnedLead = consequenceApplication.detected || consequenceAdjustedResult.evaluationMode === 'offline-lead'
-      ? null
-      : discoverLead(summaryLabel, scenario) || evaluatorLead;
-    const normalizedResult = {
-      ...consequenceAdjustedResult,
-      progress: {
-        ...(consequenceAdjustedResult.progress || {}),
-        leads: consequenceAdjustedResult.evaluationMode === 'offline-lead'
-          ? consequenceAdjustedResult.progress?.leads || []
-          : earnedLead ? [earnedLead] : []
-      }
-    };
-    const deltas = normalizedResult.relationshipShifts || {};
+    const normalizedResult = outcomeFromTurn(turn);
+    const nextWorld = turn.nextWorld;
+    const advancedSiteState = nextWorld.sites[scenario.id];
+    const deltas = normalizedResult.relationshipShifts;
+    const nextLog = [...scenarioLog, summaryLabel];
+    const nextRecord = { ...normalizedResult, summaryLabel };
+    const product = normalizedResult.product;
+    const nextProducts = product ? [...allProducts.filter(p => !(p.name === product.name && p.scenarioId === scenario.id)), {
+      ...product, scenarioId: scenario.id, scenarioName: scenario.name
+    }] : allProducts;
+    const playtestTurn = createPlaytestTurn({
+      missionSeed, scenario, day: currentDay, locationNumber: missionRecords.length + 1,
+      actionNumber: advancedSiteState.actionCount, playerAction: turn.actionRecord.rawText,
+      summaryLabel, interpretation: turn.interpretation, outcome: normalizedResult,
+      relationshipChanges: deltas, siteState: advancedSiteState
+    });
+    playtestTurn.actionRecord = turn.actionRecord;
+    playtestTurn.worldUpdate = turn.worldUpdate;
+    const nextTurns = [...playtestTurns, playtestTurn];
+    setWorldState(nextWorld);
+    setMissionConsequences(nextWorld.persistentConditions);
+    setRelationships(nextWorld.relationships);
+    setSiteStates(nextWorld.sites);
     setLastDeltas(deltas);
     setLastOutcome(normalizedResult);
-    setRelationships(prev => {
-      const updated = { ...prev };
-      Object.entries(deltas).forEach(([k, v]) => {
-        const base = updated[k] !== undefined ? updated[k] : 50;
-        updated[k] = Math.min(100, Math.max(0, base + v));
-      });
-      return updated;
-    });
-
-    const gist = (normalizedResult.narrativeOutcome || '').split('. ')[0] + '.';
-    setScenarioLog(prev => [...prev, `${summaryLabel} → ${gist}`]);
-    setScenarioRecord({ ...normalizedResult, summaryLabel });
-    setSiteStates(prev => ({
-      ...prev,
-      [scenario.id]: advanceSiteState(prev[scenario.id], normalizedResult, summaryLabel, scenario)
-    }));
-
-    if (normalizedResult.product) {
-      setAllProducts(prev => [...prev, {
-        ...normalizedResult.product,
-        scenarioName: currentScenario().name,
-        completionScore: normalizedResult.qualityScore,
-        completionPercent: normalizedResult.productCompletionPercent
-      }]);
-    }
-    return normalizedResult;
+    setScenarioLog(nextLog);
+    setScenarioRecord(nextRecord);
+    setAllProducts(nextProducts);
+    setPlaytestTurns(nextTurns);
+    setTesterFeedbackOpen(false);
+    setTesterFeedback({ categories: [], expectedResponse: '', notes: '' });
+    setReportNotice('');
+    return {
+      result: normalizedResult,
+      save: { worldState: nextWorld, missionConsequences: nextWorld.persistentConditions,
+        relationships: nextWorld.relationships, siteStates: nextWorld.sites,
+        scenarioLog: nextLog, scenarioRecord: nextRecord, allProducts: nextProducts,
+        playtestTurns: nextTurns, lastOutcome: normalizedResult }
+    };
   }
 
-  // ===== SUBMIT HANDLERS =====
-  async function runEval(userMsg, summaryLabel, opts = {}) {
-    const { isMoveOn, forceOffline } = opts;
+  function toggleFeedbackCategory(category) {
+    setTesterFeedback(prev => ({
+      ...prev,
+      categories: prev.categories.includes(category)
+        ? prev.categories.filter(item => item !== category)
+        : [...prev.categories, category]
+    }));
+  }
+
+  function saveTesterFeedback() {
+    const latest = playtestTurns[playtestTurns.length - 1];
+    if (!latest) return;
+    const updated = updateTurnFeedback(playtestTurns, latest.id, {
+      inaccurate: true,
+      categories: testerFeedback.categories,
+      expectedResponse: testerFeedback.expectedResponse.trim(),
+      notes: testerFeedback.notes.trim()
+    });
+    setPlaytestTurns(updated);
+    saveGame(currentSaveSlot, { playtestTurns: updated });
+    setTesterFeedbackOpen(false);
+    setReportNotice('Flag saved in this browser and mission save. Nothing was sent. Download the playtest report below and share it with your administrator.');
+  }
+
+  function exportPlaytestReport() {
+    if (!playtestTurns.length) {
+      setReportNotice('Complete at least one action before exporting a report.');
+      return;
+    }
+const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersion: APP_VERSION });
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = reportFilename(missionSeed);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setReportNotice('Playtest report downloaded. Review it, then upload it to Codex for analysis.');
+  }
+
+  // Every field action, product, and lead goes through the same local decision.
+  function runEval(rawText, summaryLabel, opts = {}) {
+    if (loading) return;
     setLoading(true);
     setError(null);
-    setLastSubmission({ userMsg, summaryLabel, isMoveOn });
+    setLastSubmission({ rawText, summaryLabel, opts });
     try {
-      const result = forceOffline
-        ? evaluateOffline(userMsg, currentScenario())
-        : await callClaude(EVAL_SYSTEM_PROMPT, userMsg);
-      const appliedResult = applyResult(result, summaryLabel, userMsg);
-      setPendingAdvance(isMoveOn);
-      setScreen(appliedResult.product ? 'productDisplay' : 'outcomeDisplay');
-      setActionText('');
-      setShowProductPanel(false);
-      setSelectedProductType(null);
-      setCustomProductMode(false);
-      setCustomProductText('');
-      setProductDetails('');
-      autoSave(); // Auto-save after each action
+      const scenario = currentScenario();
+      const activeScenario = opts.kind === 'lead' && activeLead
+        ? { ...scenario, keyStakeholders: [activeLead.contact], location: activeLead.label } : scenario;
+      const world = { ...worldState, sites: siteStates, relationships };
+      const turn = processUnifiedAction({
+        id: (sessionId || missionSeed) + '-turn-' + ((world.history || []).length + 1),
+        rawText, kind: opts.kind || 'action', productName: opts.productName, missionProduct: opts.missionProduct,
+        seed: missionSeed, scenarioId: scenario.id, turnNumber: (world.history || []).length + 1,
+        scenario: activeScenario, activeLead: opts.kind === 'lead' ? activeLead : null, stakeholders: activeScenario.keyStakeholders,
+        location: activeScenario.location, siteType: scenario.siteType,
+        submittedProducts: allProducts.filter(p => p.scenarioId === scenario.id).map(p => p.name),
+        worldState: world
+      });
+      if (!turn.ok) throw new Error(turn.errors.join(' '));
+      const applied = applyTurn(turn, summaryLabel);
+      const nextScreen = applied.result.missionTerminated ? 'missionFailure' : applied.result.product ? 'productDisplay' : 'outcomeDisplay';
+      setPendingAdvance(Boolean(opts.isMoveOn));
+      setLeadReturnPending(opts.kind === 'lead');
+      setScreen(nextScreen);
+      setActionText(''); setShowProductPanel(false);
+      saveGame(currentSaveSlot, { ...applied.save, screen: nextScreen, pendingAdvance: Boolean(opts.isMoveOn), leadReturnPending: opts.kind === 'lead' });
     } catch (e) {
-      setError('Something went wrong evaluating that. You can try again.');
-    } finally {
-      setLoading(false);
-    }
+      setError(e.message || 'The local action could not be recorded. Your previous state is unchanged.');
+    } finally { setLoading(false); }
   }
 
   function retry() {
-    if (!lastSubmission) return;
-    const { userMsg, summaryLabel, isMoveOn } = lastSubmission;
-    runEval(userMsg, summaryLabel, { isMoveOn });
+    if (lastSubmission) runEval(lastSubmission.rawText, lastSubmission.summaryLabel, lastSubmission.opts);
   }
 
   function submitAction() {
-    if (!actionText.trim() || loading) return;
-    const userMsg = `${buildContextBlock()}${priorLogBlock()}\nTRAINEE'S ACTION: "${actionText.trim()}"\n\nEvaluate this action and respond with the JSON shape described.`;
-    runEval(userMsg, `Action: "${actionText.trim().substring(0, 80)}"`);
+    if (actionText.trim()) runEval(actionText.trim(), actionText.trim());
   }
 
   function submitLeadAction() {
-    if (!activeLead || !actionText.trim() || loading) return;
-    const result = evaluateLeadInvestigation(actionText.trim(), activeLead, currentScenario());
-    applyResult(result, `Lead investigation at ${activeLead.label}`);
-    setActionText('');
-    setLeadReturnPending(true);
-    setScreen('outcomeDisplay');
+    if (activeLead && actionText.trim()) runEval(actionText.trim(), actionText.trim(), { kind: 'lead' });
   }
 
-  function submitProduct() {
-    const productType = customProductMode ? customProductText.trim() : selectedProductType;
-    if (!productType || !productDetails.trim() || loading) return;
-    const detailsLine = productDetails.trim() ? `\nADDITIONAL DETAILS FROM TRAINEE: "${productDetails.trim()}"` : '';
-    const userMsg = `${buildContextBlock()}${priorLogBlock()}\nTRAINEE WANTS TO CREATE THIS PRODUCT: "${productType}"${detailsLine}\n\nGenerate this product and evaluate the overall scenario quality based on all actions taken so far, including this product. Respond with the JSON shape described.`;
-    runEval(userMsg, `Product: "${productType}"`, { forceOffline: true });
+  function submitProduct(brief) {
+    const content = `Product: ${brief.name}\nRecipient: ${brief.recipient.trim()}\nPurpose: ${brief.purpose.trim()}\nKey finding and uncertainty: ${brief.keyFinding.trim()}`;
+    runEval(content, 'Submitted ' + brief.name, { kind: 'product', productName: brief.name, missionProduct: brief });
+  }
+
+  function recordCommandBrief(draft, scenarioId) {
+    const nextWorld = submitCommandBrief({ world: worldState, scenarios: missionScenarios, records: missionRecords, scenarioId, draft, day: currentDay });
+    // Persist before acknowledging the brief; preserve existing field evidence and scores.
+    saveGame(currentSaveSlot, { worldState: nextWorld });
+    setWorldState(nextWorld);
   }
 
   function moveOn() {
     if (loading) return;
-    if (scenarioRecord) {
-      finalizeScenario();
-    } else {
-      const userMsg = `${buildContextBlock()}\nThe trainee chose to move on from this location WITHOUT taking any action or creating any product.\n\nEvaluate against the INITIAL reference and respond with the JSON shape described (omit "product").`;
-      runEval(userMsg, 'Moved on without engaging', { isMoveOn: true });
-    }
+    if (scenarioRecord) finalizeScenario();
+    else runEval('Depart without engaging at this location.', 'Departed without engaging', { kind: 'skip', isMoveOn: true });
+  }
+
+  function openMissionPlanning(overrides = {}) {
+    setPlanningSelection('');
+    setPlanningRationale('');
+    setPendingAdvance(false);
+    setActiveLead(null);
+    setLeadReturnPending(false);
+    setScreen('missionPlanning');
+    saveGame(currentSaveSlot, { ...overrides, planningSelection: '', planningRationale: '', screen: 'missionPlanning', pendingAdvance: false, activeLead: null, leadReturnPending: false });
+  }
+
+  function travelToSelectedSite() {
+    if (missionRecords.length >= visitLimit) return;
+    const choice = remainingSites(missionScenarios, missionRecords).find(({ scenario }) => scenario.id === planningSelection);
+    if (!choice || worldState.missionOutcome?.terminated) return;
+    const decisions = [...routeDecisions, { scenarioId: choice.scenario.id, location: choice.scenario.location, scenarioName: choice.scenario.name,
+      day: currentDay, rationale: planningRationale.trim(), selectedAt: new Date().toISOString() }];
+    setRouteDecisions(decisions);
+    setScenarioIndex(choice.index);
+    setScenarioLog([]); setScenarioRecord(null); setLastOutcome(null); setLastDeltas({});
+    setActionText(''); setShowProductPanel(false); setError(null); setReportNotice('');
+    setPlanningSelection(''); setPlanningRationale('');
+    setScreen('scenarioScreen');
+    saveGame(currentSaveSlot, { routeDecisions: decisions, scenarioIndex: choice.index, scenarioLog: [], scenarioRecord: null,
+      lastOutcome: null, planningSelection: '', planningRationale: '', screen: 'scenarioScreen', pendingAdvance: false, activeLead: null, leadReturnPending: false });
   }
 
   function finalizeScenario() {
     const scenario = currentScenario();
     const newRecord = {
+      scenarioId: scenario.id,
       scenarioName: scenario.name,
       location: scenario.location,
       hadrFocus: scenario.hadrFocus,
@@ -541,79 +564,120 @@ RESPONSE JSON FORMAT (always include these fields):
     setScenarioRecord(null);
     setLastDeltas({});
 
-    if (currentDay < missionDuration) {
-      setCurrentDay(currentDay + 1);
-      setScenarioIndex(scenarioIndex + 1);
-      setScreen('scenarioScreen');
-      autoSave();
+    if (updatedRecords.length < visitLimit && remainingSites(missionScenarios, updatedRecords).length) {
+      const nextDay = campaignDay(missionDuration, visitLimit, updatedRecords.length);
+      setCurrentDay(nextDay);
+      openMissionPlanning({ missionRecords: updatedRecords, currentDay: nextDay, scenarioLog: [], scenarioRecord: null, lastOutcome: null });
     } else {
       setScreen('debriefLoading');
       generateDebrief(updatedRecords);
     }
   }
 
+  function finishTerminatedMission() {
+    const scenario = currentScenario();
+    const terminalRecord = {
+      scenarioId: scenario.id,
+      scenarioName: scenario.name,
+      location: scenario.location,
+      hadrFocus: scenario.hadrFocus,
+      summaryLabel: scenarioRecord?.summaryLabel || 'Mission terminated by command',
+      qualityScore: scenarioRecord?.qualityScore ?? -100,
+      discSignal: scenarioRecord?.discSignal || 'c',
+      consequenceChain: scenarioRecord?.consequenceChain || null,
+      day: currentDay,
+      siteProgress: currentSiteState(),
+      missionTerminated: true
+    };
+    const updatedRecords = [...missionRecords, terminalRecord];
+    setMissionRecords(updatedRecords);
+    setScreen('debriefLoading');
+    generateDebrief(updatedRecords);
+  }
+
   function applySuggestion(text) {
     setActionText(prev => (prev ? prev + ' ' + text : text));
+  }
+
+  function optionalNextActions(scenario, siteState) {
+    const stakeholder = scenario.keyStakeholders?.[0] || 'the primary stakeholder';
+    const suggestions = [];
+    if (!(siteState.actions || []).length) {
+      suggestions.push(`Introduce the team to ${stakeholder}, explain the mission purpose, ask permission to continue, and invite their initial concerns.`);
+    } else {
+      suggestions.push(`Ask ${stakeholder} one focused follow-up question about the most important unresolved information gap.`);
+    }
+    if (!(siteState.discoveries || []).length) {
+      suggestions.push(`Ask ${stakeholder} what has changed, who is affected, who else has relevant information, and what records may exist.`);
+    } else {
+      suggestions.push(`Select one stakeholder claim already collected and compare it with a named second source, relevant record, or direct observation.`);
+    }
+    if ((siteState.informationGaps || []).some(gap => /capacity|condition|population|consequence/i.test(gap))) {
+      suggestions.push(`Request permission to observe current site conditions and document capacity, affected populations, and immediate risks.`);
+    }
+    if ((siteState.informationGaps || []).some(gap => /authority|coordination/i.test(gap))) {
+      suggestions.push(`Identify the responsible local authority and confirm the coordination pathway without promising assistance or an outcome.`);
+    }
+    const openLead = (siteState.leads || []).find(lead => lead.status !== 'completed');
+    if (openLead) {
+      suggestions.push(`Ask what specifically connects this location to the ${openLead.label}, then decide whether the developed lead is relevant enough to investigate.`);
+    }
+    return suggestions.slice(0, 4);
   }
 
   function continueFromOutcome() {
     // By this point React has committed the evaluation and location progress,
     // so this save includes the action the trainee just completed.
-    saveGame(currentSaveSlot);
     if (leadReturnPending) {
       setLeadReturnPending(false);
       setActiveLead(null);
       setScreen('scenarioScreen');
+      saveGame(currentSaveSlot, { screen: 'scenarioScreen', leadReturnPending: false, activeLead: null });
     } else if (pendingAdvance) {
       finalizeScenario();
     } else {
       setScreen('scenarioScreen');
+      saveGame(currentSaveSlot, { screen: 'scenarioScreen' });
     }
   }
 
-  async function generateDebrief(records) {
-    setLoading(true);
-    try {
-      const summary = records.map(r => `${r.scenarioName}: ${r.summaryLabel} (${r.qualityScore} pts)`).join('\n');
-      const productsText = allProducts.map(p => `${p.name} (${p.type}) → ${p.recipient}`).join('\n');
-      const userMsg = `Review this trainee's CA mission performance and generate a brief encouraging debrief:
+  function getPerformanceReport(records = missionRecords, completedAt = sessionCompletedAt) {
+    return buildPerformanceReport({
+      world: worldState, operator, playerRole, sessionId, missionSeed,
+      missionLabel: personalizedMissionLabel(), startedAt: sessionStartedAt, completedAt,
+      plannedLocations: visitLimit, missionRecords: records, readinessResults, products: allProducts, routeDecisions,
+      unvisitedDestinations: campaignTradeoffs(missionScenarios, records), chiefPlan, missionScenarios
+    });
+  }
 
-MISSION SUMMARY:
-${summary}
+  function exportPerformanceReport(format) {
+    const report = getPerformanceReport();
+    const filename = 'hip-pocket-performance-' + String(sessionId || missionSeed).replace(/[^a-z0-9-]/gi, '_');
+    if (format === 'json') downloadFile(filename + '.json', JSON.stringify(report, null, 2), 'application/json');
+    else downloadFile(filename + '.html', performanceReportHtml(report), 'text/html;charset=utf-8');
+    setReportNotice(format === 'json' ? 'Performance evidence downloaded.' : 'Report downloaded. Open it and use Print → Save as PDF.');
+  }
 
-PRODUCTS CREATED:
-${productsText || '(none)'}
+  function printPerformanceReport() {
+    const frame = document.createElement('iframe');
+    frame.title = 'Printable Soldier Performance Report';
+    frame.style.cssText = 'position:fixed;width:0;height:0;border:0';
+    frame.onload = () => {
+      frame.contentWindow.onafterprint = () => frame.remove();
+      frame.contentWindow.focus();
+      frame.contentWindow.print();
+    };
+    frame.srcdoc = performanceReportHtml(getPerformanceReport());
+    document.body.appendChild(frame);
+  }
 
-RELATIONSHIPS:
-${Object.entries(relationships).map(([name, val]) => `${name}: ${val}/100`).join('\n')}
-
-MISSION CONSEQUENCES:
-${missionConsequences.length ? consequenceSummary(missionConsequences) : '(none)'}
-
-Generate a brief debrief (5-7 sentences) that:
-1. Highlights 1-2 strengths
-2. Identifies 1-2 areas for improvement
-3. Notes relationship dynamics
-4. Gives forward guidance
-Respond with only the debrief text, no JSON.`;
-
-      const response = await fetch('https://hip-pocket-api.onrender.com/api/debrief', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userMsg })
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'API error');
-      }
-      setDebrief(data.text);
-      setScreen('debrief');
-    } catch (e) {
-      setDebrief(createOfflineDebrief(records, allProducts, missionConsequences));
-      setScreen('debrief');
-    } finally {
-      setLoading(false);
-    }
+  function generateDebrief(records) {
+    const endedAt = new Date().toISOString();
+    const text = performanceDebrief(getPerformanceReport(records, endedAt));
+    setSessionCompletedAt(endedAt);
+    setDebrief(text);
+    setScreen('debrief');
+    saveGame(currentSaveSlot, { missionRecords: records, sessionCompletedAt: endedAt, debrief: text, screen: 'debrief', pendingAdvance: false, activeLead: null });
   }
 
   function resetGame() {
@@ -621,12 +685,18 @@ Respond with only the debrief text, no JSON.`;
     setOperator({ name: '', callsign: '' });
     setPlayerRole(null);
     setMissionDuration(null);
+    setVisitLimit(3);
+    setChiefPlan(emptyChiefPlan());
+    setMissionScenarios([]);
     setTrainingPersonalization(DEFAULT_TRAINING_PERSONALIZATION);
     setCurrentDay(1);
     setScenarioIndex(0);
     setScenarioLog([]);
     setScenarioRecord(null);
     setMissionRecords([]);
+    setRouteDecisions([]);
+    setPlanningSelection('');
+    setPlanningRationale('');
     setAllProducts([]);
     setSiteStates({});
     setRelationships({
@@ -639,10 +709,6 @@ Respond with only the debrief text, no JSON.`;
     });
     setActionText('');
     setShowProductPanel(false);
-    setSelectedProductType(null);
-    setCustomProductMode(false);
-    setCustomProductText('');
-    setProductDetails('');
     setLastOutcome(null);
     setLastDeltas({});
     setPendingAdvance(false);
@@ -656,6 +722,16 @@ Respond with only the debrief text, no JSON.`;
     setLeadReturnPending(false);
     setMissionConsequences([]);
     setReadinessResults({});
+    setAwardPractice({ level: '', achievement: '', impact: '', scope: '', support: '' });
+    setAwardPracticeResult(null);
+    setPlaytestTurns([]);
+    setTesterFeedbackOpen(false);
+    setTesterFeedback({ categories: [], expectedResponse: '', notes: '' });
+    setReportNotice('');
+    setWorldState(migrateWorldState());
+    setSessionId('');
+    setSessionStartedAt(null);
+    setSessionCompletedAt(null);
     setCurrentSaveSlot(0);
   }
 
@@ -691,6 +767,16 @@ Respond with only the debrief text, no JSON.`;
   };
 
   // ===== RENDER: LOAD OR NEW GAME =====
+  if (screen === 'chiefPlanning') {
+    return <ChiefPlanningScreen plan={chiefPlan} onChange={setChiefPlan} visits={visitLimit} destinations={missionScenarios.length} onSave={saveAndExit}
+      onContinue={() => { const plan = { ...chiefPlan, completed: true }; setChiefPlan(plan); setScreen('annexKBriefing'); saveGame(currentSaveSlot, { chiefPlan: plan, screen: 'annexKBriefing' }); }} />;
+  }
+  if (screen === 'studyPractice') {
+    return <StudyPractice onExit={() => setScreen('loadOrNew')} />;
+  }
+  if (screen === 'classroomOpord') {
+    return <ClassroomOpordScreen onExit={() => setScreen('loadOrNew')} />;
+  }
   if (screen === 'loadOrNew') {
     const hasSaves = saveSlots.some(s => s !== null);
     return (
@@ -698,9 +784,21 @@ Respond with only the debrief text, no JSON.`;
         <div className="max-w-3xl mx-auto">
           <div className="text-center mb-12">
             <h1 className="text-6xl font-bold text-white mb-3">Hip Pocket</h1>
-            <p className="text-blue-200 text-xl mb-2">Civil Affairs Training v4.3</p>
-            <p className="text-slate-400">Save & load • Difficulty scaling • 3/7/14/29-day missions</p>
+            <p className="text-blue-200 text-xl mb-2">Civil Affairs Training · {APP_VERSION}</p>
+            <p className="text-slate-400">Save & load • Role-based difficulty • Drill weekend, annual training, deployment</p>
           </div>
+
+          <section className="bg-slate-800 rounded-lg p-6 border border-teal-700 mb-8">
+            <h2 className="text-2xl font-bold text-white mb-2">Study & Staff Practice</h2>
+            <p className="text-slate-300 mb-4">Practice engagement preparation, reporting and civil assessment without starting a mission. Save your work and export a report for leader review.</p>
+            <button onClick={() => setScreen('studyPractice')} className="bg-teal-700 hover:bg-teal-600 text-white px-6 py-3 rounded-lg font-bold">Open Study & Staff Practice</button>
+          </section>
+
+          <section className="bg-slate-800 rounded-lg p-6 border border-sky-700 mb-8">
+            <h2 className="text-2xl font-bold text-white mb-2">Classroom OPORD Exercise</h2>
+            <p className="text-slate-300 mb-4">Generate a fictional staff exercise for your class: mission analysis, CA contributions across phases, and three-team prioritization. Print student worksheets and separate draft facilitator notes.</p>
+            <button onClick={() => setScreen('classroomOpord')} className="bg-sky-700 hover:bg-sky-600 text-white px-6 py-3 rounded-lg font-bold">Open Classroom OPORD Exercise</button>
+          </section>
 
           {saveNotice && (
             <div className={`rounded-lg p-4 border mb-6 ${
@@ -823,25 +921,25 @@ Respond with only the debrief text, no JSON.`;
       {
         id: 'specialist',
         name: 'CA Specialist',
-        desc: 'Junior role. Maximum hints and assistance. Most lenient grading.',
+        desc: 'Guided difficulty. Optional next-action ideas and additional guidance.',
         difficulty: '★☆☆☆'
       },
       {
         id: 'canco',
         name: 'CANCO',
-        desc: 'Mid-level NCO. Some hints. Standard grading expectations.',
+        desc: 'Intermediate difficulty. Some guidance. The same evidence rubric applies.',
         difficulty: '★★☆☆'
       },
       {
         id: 'sgt',
         name: 'Team Sergeant',
-        desc: 'Senior NCO. Minimal hints. Strict grading standards.',
+        desc: 'Advanced difficulty. Minimal hints and responsibility for team performance.',
         difficulty: '★★★☆'
       },
       {
         id: 'chief',
         name: 'Team Chief',
-        desc: 'Team leader. No hints. Maximum rigor. Full responsibility.',
+        desc: 'Command difficulty. Begin with a pre-deployment planning rehearsal, then lead without hints. The same evidence rubric applies.',
         difficulty: '★★★★'
       }
     ];
@@ -850,8 +948,8 @@ Respond with only the debrief text, no JSON.`;
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-8">
         <div className="max-w-3xl mx-auto">
           <div className="bg-gradient-to-r from-purple-700 to-purple-800 rounded-lg p-8 mb-8">
-            <h1 className="text-4xl font-bold text-white">SELECT YOUR ROLE</h1>
-            <p className="text-purple-100 mt-2">Choose your difficulty level</p>
+            <h1 className="text-4xl font-bold text-white">SELECT YOUR ROLE & DIFFICULTY</h1>
+            <p className="text-purple-100 mt-2">Your role determines guidance, scenario complexity and leadership responsibility—not a different standard for what is true.</p>
           </div>
 
           <div className="space-y-3 mb-6">
@@ -886,19 +984,14 @@ Respond with only the debrief text, no JSON.`;
 
   // ===== RENDER: MISSION SELECTION =====
   if (screen === 'missionSelection') {
-    const durations = [
-      { days: 3, name: '3-Day Mission', desc: 'Short orientation. ~3 hours playtime. Good for quick training.' },
-      { days: 7, name: '7-Day Mission', desc: 'Standard deployment. ~8 hours playtime. Full civil assessment training.' },
-      { days: 14, name: '14-Day Mission', desc: 'Extended AO prep. ~16 hours playtime. Advanced assessment cycle.' },
-      { days: 29, name: '29-Day Mission', desc: 'Full civil preparation. ~32 hours playtime. Comprehensive CA immersion.' }
-    ];
+    const durations = CAMPAIGNS;
 
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-8">
         <div className="max-w-3xl mx-auto">
           <div className="bg-gradient-to-r from-indigo-700 to-indigo-800 rounded-lg p-8 mb-8">
             <h1 className="text-4xl font-bold text-white">SELECT MISSION DURATION</h1>
-            <p className="text-indigo-100 mt-2">Choose how long your deployment lasts</p>
+            <p className="text-indigo-100 mt-2">Choose a simulated training period—not hours of required gameplay. Save and resume whenever you need.</p>
           </div>
 
           <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
@@ -992,8 +1085,12 @@ Respond with only the debrief text, no JSON.`;
               <button
                 key={dur.days}
                 onClick={() => {
-                  setMissionSeed(createMissionSeed());
+                  const seed = createMissionSeed();
+                  setMissionSeed(seed);
                   setMissionDuration(dur.days);
+                  setVisitLimit(dur.visits);
+                  setChiefPlan(emptyChiefPlan());
+                  setMissionScenarios(generateMission({ seed, days: dur.days, role: playerRole, candidateCount: dur.destinations, includeMarket: true }));
                   setCurrentDay(1);
                   setScenarioIndex(0);
                   setScenarioLog([]);
@@ -1001,13 +1098,15 @@ Respond with only the debrief text, no JSON.`;
                   setMissionRecords([]);
                   setAllProducts([]);
                   setSiteStates({});
-                  setScreen('annexKBriefing');
+                  setPlaytestTurns([]);
+                  setReportNotice('');
+                  setScreen(playerRole === 'chief' ? 'chiefPlanning' : 'annexKBriefing');
                 }}
                 className="w-full bg-slate-800 hover:bg-slate-700 rounded-lg p-6 border border-slate-700 hover:border-indigo-600 text-left transition"
               >
                 <div className="flex items-start justify-between mb-2">
                   <h3 className="text-xl font-bold text-white">{dur.name}</h3>
-                  <span className="text-slate-400 text-sm">{dur.days} days</span>
+                  <span className="text-slate-400 text-sm">{dur.days} simulated days · {dur.visits} visits</span>
                 </div>
                 <p className="text-slate-300 text-sm">{dur.desc}</p>
               </button>
@@ -1090,6 +1189,28 @@ Respond with only the debrief text, no JSON.`;
           >
             Continue to Mission Brief <ChevronRight className="inline ml-2 w-5 h-5" />
           </button>
+
+          <div className="bg-amber-950/30 border border-amber-700 rounded-lg p-5">
+            <p className="text-amber-200 text-xs font-bold uppercase tracking-wide">Temporary testing shortcut</p>
+            <p className="text-slate-300 text-sm mt-2">For repeated application testing only. This bypasses the team huddle and all three learning checks; skipped readiness blocks receive no score.</p>
+            <button
+              onClick={() => {
+                setReadinessResults({
+                  annex: { skippedForTesting: true },
+                  ascope: { skippedForTesting: true },
+                  pmesii: { skippedForTesting: true }
+                });
+                setCheckPhase('annex');
+                setCheckAttempt(1);
+                setCheckAnswers({});
+                setCheckFeedback(null);
+                setScreen('missionBriefing');
+              }}
+              className="w-full mt-4 bg-amber-700 hover:bg-amber-600 text-white px-6 py-3 rounded font-bold"
+            >
+              Skip Refreshers for Testing
+            </button>
+          </div>
 
           <button
             onClick={() => setScreen('missionSelection')}
@@ -1187,6 +1308,7 @@ Respond with only the debrief text, no JSON.`;
         [checkPhase]: {
           ...(prev[checkPhase] || {}),
           attempts: checkAttempt,
+          questionCount: questions.length,
           firstAttemptPassed: checkAttempt === 1 ? result.passed : prev[checkPhase]?.firstAttemptPassed || false,
           firstAttemptMissed: checkAttempt === 1 ? result.missed.length : prev[checkPhase]?.firstAttemptMissed ?? 0,
           completedPassed: result.passed,
@@ -1279,7 +1401,7 @@ Respond with only the debrief text, no JSON.`;
         <div className="max-w-4xl mx-auto space-y-6">
           <div className="bg-gradient-to-r from-green-700 to-green-800 rounded-lg p-8">
             <h1 className="text-4xl font-bold text-white">MISSION BRIEFING</h1>
-            <p className="text-green-100 mt-2">{personalizedMissionLabel()} — {missionDuration}-Day Deployment</p>
+            <p className="text-green-100 mt-2">{personalizedMissionLabel()} — {missionDuration} simulated days</p>
           </div>
 
           <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 space-y-4">
@@ -1302,7 +1424,7 @@ Respond with only the debrief text, no JSON.`;
             <div className="border-t border-slate-700 pt-4">
               <h3 className="text-slate-300 text-xs font-bold uppercase tracking-wide mb-2">Mission</h3>
               <p className="text-white">Assess {personalizedRegion()}'s civil environment for HADR readiness across {missionDuration} days of engagement.</p>
-              <p className="text-slate-400 text-sm mt-2">Your route is randomized but coverage-balanced. The scheduler avoids immediate repetition, introduces unused sites and mission activities first, and distributes unavoidable repeats across longer deployments. Difficulty escalates as the mission progresses.</p>
+              <p className="text-slate-400 text-sm mt-2">You can visit {visitLimit} of {missionScenarios.length} possible destinations. Prioritize what you need to learn and leave a useful handover for what you cannot cover. Unvisited destinations are not automatic failures.</p>
             </div>
 
             <div className="border-t border-slate-700 pt-4">
@@ -1316,16 +1438,16 @@ Respond with only the debrief text, no JSON.`;
             </div>
 
             <div className="border-t border-slate-700 pt-4">
-              <h3 className="text-slate-300 text-xs font-bold uppercase tracking-wide mb-2">Estimated Duration</h3>
-              <p className="text-white">{Math.round(missionDuration * 8 / 3)} hours of gameplay</p>
+              <h3 className="text-slate-300 text-xs font-bold uppercase tracking-wide mb-2">Field-visit budget</h3>
+              <p className="text-white">{visitLimit} visit slots · {missionScenarios.length} destinations · Play at your own pace</p>
             </div>
           </div>
 
           <button
-            onClick={() => setScreen('scenarioScreen')}
+            onClick={() => openMissionPlanning()}
             className="w-full bg-gradient-to-r from-green-600 to-green-700 hover:from-green-500 hover:to-green-600 text-white px-8 py-4 rounded-lg font-bold text-lg"
           >
-            Deploy <ChevronRight className="inline ml-2 w-5 h-5" />
+            Plan Your First Move <ChevronRight className="inline ml-2 w-5 h-5" />
           </button>
 
           <button
@@ -1337,6 +1459,14 @@ Respond with only the debrief text, no JSON.`;
         </div>
       </div>
     );
+  }
+
+  if (screen === 'missionPlanning') {
+    return <MissionPlanning scenarios={missionScenarios} records={missionRecords} sites={siteStates} consequences={missionConsequences}
+      world={worldState} onCommandBrief={recordCommandBrief}
+      visitLimit={visitLimit} duration={missionDuration} chiefPlan={chiefPlan}
+      day={currentDay} region={personalizedRegion()} missionLabel={personalizedMissionLabel()} selected={planningSelection} rationale={planningRationale}
+      onSelect={setPlanningSelection} onRationale={setPlanningRationale} onTravel={travelToSelectedSite} onSave={saveAndExit} />;
   }
 
   // ===== RENDER: PLAYABLE LEAD SCENE =====
@@ -1398,8 +1528,11 @@ Respond with only the debrief text, no JSON.`;
     const scenario = currentScenario();
     const siteState = currentSiteState();
     const hasProgress = siteState.actions.length > 0;
+    const validationBrief = buildValidationBrief(siteState);
     const showHints = playerRole === 'specialist' || playerRole === 'canco';
     const diffMult = getFinalDifficultyMultiplier().toFixed(2);
+    const orientation = siteOrientation(scenario);
+    const routeChoice = routeDecisions.find(choice => choice.scenarioId === scenario.id);
 
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-8">
@@ -1407,7 +1540,7 @@ Respond with only the debrief text, no JSON.`;
         <div className="max-w-4xl mx-auto">
           <div className="flex justify-between items-center mb-6">
             <div>
-              <p className="text-blue-300 text-sm">Day {currentDay} of {missionDuration} • Location {scenarioIndex + 1} of {missionScenarios.length}</p>
+              <p className="text-blue-300 text-sm">Day {currentDay} of {missionDuration} • Visit {missionRecords.length + 1} of {visitLimit} · {missionScenarios.length} possible destinations</p>
               <p className="text-slate-400 text-xs mt-1">Mission seed: {missionSeed}</p>
               <h1 className="text-4xl font-bold text-white mt-1">{scenario.name}</h1>
             </div>
@@ -1425,13 +1558,22 @@ Respond with only the debrief text, no JSON.`;
 
           <ErrorBanner />
 
+          <section aria-labelledby="site-purpose" className="mb-6 border-l-4 border-cyan-400 bg-slate-800/60 rounded-r-lg px-6 py-5">
+            <h2 id="site-purpose" className="text-cyan-200 text-sm font-bold uppercase tracking-wide">Your Purpose Here</h2>
+            <p className="text-white mt-2 leading-relaxed">{orientation.purpose} Distinguish reported concerns from verified findings and identify appropriate follow-up.</p>
+            {routeChoice && <p className="text-slate-300 text-sm mt-2">You chose this location for Day {routeChoice.day}.{routeChoice.rationale ? ` Your reasoning: ${routeChoice.rationale}` : ''}</p>}
+            <p className="text-slate-400 text-sm mt-3">Read the scene, then describe what your team says or does. Use Create a Product to submit documents. Conclude the site when you are ready to plan your next move.</p>
+          </section>
+
+          <div className="flex flex-col">
+          <CommandArrivalNote world={worldState} scenario={scenario} scenarios={missionScenarios} records={missionRecords} />
           {missionConsequences.length > 0 && (
-            <div className="bg-red-950/60 rounded-lg p-5 border border-red-700 mb-6">
+            <div className="order-2 bg-red-950/60 rounded-lg p-5 border border-red-700 mb-6">
               <p className="text-red-300 text-xs font-bold uppercase tracking-wide">Active Mission Consequences</p>
               <div className="space-y-4 mt-3">
                 {missionConsequences.map(item => (
                   <div key={item.id}>
-                    <p className="text-white font-semibold">{item.title} <span className="text-red-300 text-sm">({item.status})</span></p>
+                      <p className="text-white font-semibold">{item.title} <span className="text-red-300 text-sm">({item.status}; {item.occurrenceCount || 1} occurrence{(item.occurrenceCount || 1) === 1 ? '' : 's'})</span></p>
                     <ul className="text-red-100 text-sm list-disc pl-5 mt-2 space-y-1">
                       {item.persistentEffects.map(effect => <li key={effect}>{effect}</li>)}
                     </ul>
@@ -1442,19 +1584,73 @@ Respond with only the debrief text, no JSON.`;
             </div>
           )}
 
-          <div className="bg-slate-800 rounded-lg p-8 border border-slate-700 mb-6 text-slate-100 leading-relaxed">
-            <p className="text-blue-300 text-xs font-bold uppercase tracking-wide mb-3">{hasProgress ? 'Continuity Scene' : 'Arrival'}</p>
-            <p className="whitespace-pre-wrap">{hasProgress ? currentContinuityNarrative(siteState, scenario) : scenario.narrative}</p>
-          </div>
+          {hasProgress && (validationBrief.claims.length > 0 || validationBrief.gaps.length > 0 || validationBrief.leads.length > 0) && (
+            <div className="order-first bg-amber-950/30 rounded-lg p-6 border border-amber-600 mb-6">
+              <p className="text-amber-300 text-xs font-bold uppercase tracking-wide">Where you left off · What requires validation</p>
+              <p className="text-slate-300 text-sm mt-2">
+                These are claims or unresolved questions—not confirmed facts. Choose a source, record, observation, or comparison that could confirm or contradict them.
+              </p>
+
+              {validationBrief.claims.length > 0 && (
+                <div className="mt-4">
+                  <p className="text-slate-400 text-xs font-bold uppercase mb-2">Claims currently on the table</p>
+                  <ul className="text-white text-sm space-y-2 list-disc pl-5">
+                    {validationBrief.claims.map(claim => <li key={claim}>{claim}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              {validationBrief.gaps.length > 0 && (
+                <div className="mt-4">
+                  <p className="text-slate-400 text-xs font-bold uppercase mb-2">Questions that remain unanswered</p>
+                  <ul className="text-amber-100 text-sm space-y-2 list-disc pl-5">
+                    {validationBrief.gaps.map(gap => <li key={gap}>{gap}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              {validationBrief.leads.length > 0 && (
+                <div className="mt-5">
+                  <p className="text-slate-400 text-xs font-bold uppercase mb-2">Available validation leads</p>
+                  <div className="space-y-2">
+                    {validationBrief.leads.map(lead => (
+                      <div key={lead.id} className="bg-slate-900/70 border border-amber-800 rounded p-4 flex justify-between items-center gap-3">
+                        <div>
+                          <p className="text-white font-semibold">{lead.label}</p>
+                          <p className="text-slate-300 text-sm mt-1">{lead.discoveryText || lead.reason}</p>
+                          <p className="text-amber-300 text-xs mt-2">Possible source: {lead.contact || 'Follow the lead to identify a source'}</p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setActiveLead(lead);
+                            setActionText('');
+                            setScreen('leadScene');
+                          }}
+                          className="shrink-0 bg-indigo-700 hover:bg-indigo-600 text-white text-xs px-3 py-2 rounded"
+                        >
+                          {lead.status === 'being investigated' ? 'Continue Lead' : 'Investigate Lead'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {isMarket(scenario) ? <div className="order-1"><MarketScenePanel scenario={scenario} site={siteState} text={hasProgress ? currentContinuityNarrative(siteState, scenario) : orientation.arrival} continued={hasProgress} /></div> : <div className="order-1 bg-gradient-to-br from-slate-800 to-blue-950/40 rounded-lg p-8 border-2 border-blue-500 mb-6 text-slate-100 leading-relaxed shadow-lg shadow-blue-950/30">
+            <p className="text-blue-300 text-sm font-bold uppercase tracking-wide mb-3">{hasProgress ? 'Continuity Scene — The Story Continues' : routeChoice ? 'Arrival — At Your Chosen Location' : 'Arrival — At the Location'}</p>
+            <p className="whitespace-pre-wrap text-lg leading-8">{hasProgress ? currentContinuityNarrative(siteState, scenario) : orientation.arrival}</p>
+          </div>}
 
           {hasProgress && (
             <>
-            <div className="bg-blue-950/40 rounded-lg p-6 border border-blue-700 mb-6">
+            <div className="order-3 bg-blue-950/40 rounded-lg p-6 border border-blue-700 mb-6">
               <p className="text-blue-300 text-xs font-bold uppercase tracking-wide mb-2">Current Mission Status</p>
               <p className="text-slate-100 leading-relaxed">{siteStatusSummary(siteState, scenario)}</p>
               {siteState.sequencingNote && <p className="text-amber-200 text-sm mt-3">{siteState.sequencingNote}</p>}
             </div>
-            <div className="bg-slate-800 rounded-lg p-6 border border-teal-700 mb-6">
+            <div className="order-6 bg-slate-800 rounded-lg p-6 border border-teal-700 mb-6">
               <div className="flex justify-between items-start gap-4 mb-5">
                 <div>
                   <p className="text-teal-300 text-xs font-bold uppercase tracking-wide">Location Progress</p>
@@ -1482,39 +1678,10 @@ Respond with only the debrief text, no JSON.`;
                 </div>
               </div>
 
-              {siteState.leads.length > 0 && (
-                <div className="mb-5">
-                  <p className="text-slate-400 text-xs font-bold uppercase mb-2">Developed leads</p>
-                  <div className="space-y-2">
-                    {siteState.leads.map(lead => (
-                      <div key={lead.id} className="bg-slate-900/60 border border-slate-700 rounded p-3 flex justify-between items-center gap-3">
-                        <div>
-                          <p className="text-white text-sm font-semibold">{lead.label}</p>
-                          <p className="text-slate-300 text-sm mt-1">{lead.discoveryText || lead.reason}</p>
-                          <p className="text-indigo-300 text-xs mt-2 uppercase tracking-wide">Status: {lead.status || 'open'}</p>
-                        </div>
-                        <button
-                          onClick={() => {
-                            setSiteStates(prev => ({ ...prev, [scenario.id]: followLead(prev[scenario.id], lead.id) }));
-                            setActiveLead(lead);
-                            setActionText('');
-                            setScreen('leadScene');
-                          }}
-                          disabled={lead.status === 'completed'}
-                          className="shrink-0 bg-indigo-700 hover:bg-indigo-600 disabled:bg-slate-700 disabled:text-slate-400 text-white text-xs px-3 py-2 rounded"
-                        >
-                          {lead.status === 'completed' ? 'Lead Completed' : lead.status === 'being investigated' ? 'Continue Lead' : 'Investigate Lead'}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               <div>
                 <p className="text-slate-400 text-xs font-bold uppercase mb-2">Performance picture</p>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                  {DIMENSIONS.map(([key, label]) => (
+                  {SCORE_DIMENSIONS.map(([key, label]) => (
                     <div key={key} className="bg-slate-900/50 rounded p-2">
                       <p className="text-slate-400 text-xs">{label}</p>
                       <p className="text-white font-bold">{siteState.dimensionScores[key] || 0}</p>
@@ -1530,41 +1697,58 @@ Respond with only the debrief text, no JSON.`;
             </>
           )}
 
-          <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
-            <label className="text-slate-400 text-xs font-bold uppercase tracking-wide block mb-2">What will you do?</label>
-            <p className="text-slate-300 text-sm mb-4">
-              Describe what you actually say or do. Consider the people present, the purpose of the visit, and what should happen before you begin documenting findings.
+          <div className="order-5 bg-gradient-to-br from-green-950/50 to-slate-800 rounded-lg p-7 border-2 border-green-500 mb-6 shadow-lg shadow-green-950/20">
+            <label className="text-green-300 text-xl font-bold uppercase tracking-wide block mb-2">What Will You Do Next?</label>
+            <p className="text-slate-200 mb-4">
+              Make the next decision in the story. Describe what you actually say or do based on the continuity scene, current mission status, and information requiring validation.
             </p>
+            {showHints && (
+              <a href="#optional-next-actions" className="inline-flex items-center gap-2 text-amber-300 hover:text-amber-200 text-sm font-semibold mb-4">
+                <span aria-hidden="true">💡</span> Not sure what to do? Review optional next-action ideas lower on this page.
+              </a>
+            )}
             <textarea
               value={actionText}
               onChange={(e) => setActionText(e.target.value)}
               placeholder="For example: introduce the team, explain your purpose, ask permission to continue, listen, observe, validate information, coordinate, or describe another action in your own words..."
-              rows={3}
-              className="w-full px-4 py-3 bg-slate-700 text-white rounded border border-slate-600 placeholder-slate-500 resize-none mb-4"
+              rows={5}
+              className="w-full px-4 py-3 bg-slate-900/80 text-white rounded border-2 border-slate-500 focus:border-green-400 placeholder-slate-500 resize-y mb-4"
             />
-            <button
-              onClick={submitAction}
-              disabled={!actionText.trim() || loading}
-              className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-slate-700 disabled:text-slate-500 text-white px-6 py-3 rounded font-bold flex items-center justify-center gap-2"
-            >
-              <Send className="w-4 h-4" /> Submit Action
-            </button>
+            <div className="grid md:grid-cols-2 gap-3">
+              <button
+                onClick={submitAction}
+                disabled={!actionText.trim() || loading}
+                className="w-full bg-green-600 hover:bg-green-500 disabled:bg-slate-700 disabled:text-slate-500 text-white px-6 py-4 rounded font-bold text-lg flex items-center justify-center gap-2"
+              >
+                <Send className="w-4 h-4" /> Submit Action
+              </button>
+              <button
+                onClick={() => setShowProductPanel(true)}
+                disabled={loading}
+                className="w-full bg-blue-700 hover:bg-blue-600 disabled:bg-slate-700 text-white px-6 py-4 rounded font-bold text-lg flex items-center justify-center gap-2"
+              >
+                <Package className="w-5 h-5" /> Create a Product
+              </button>
+            </div>
+          </div>
           </div>
 
+          <CommandContinuityPanel key={scenario.id} world={worldState} scenarios={missionScenarios} records={missionRecords} scenario={scenario} day={currentDay} onSubmit={recordCommandBrief} />
+
           {showHints && (
-            <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-4 mb-6">
-              <p className="text-blue-200 text-sm font-semibold">💡 OPTIONAL PRODUCT IDEAS</p>
+            <div id="optional-next-actions" className="bg-blue-900/20 border border-blue-800 rounded-lg p-4 mb-6 scroll-mt-6">
+              <p className="text-blue-200 text-sm font-semibold">💡 OPTIONAL NEXT ACTIONS</p>
               <p className="text-slate-300 text-xs mt-1 mb-3">
-                If you are unsure what products may eventually support the mission, these are possibilities—not required actions or automatically correct next steps. Select one only when the engagement and available information justify creating it.
+                If you are unsure how to continue, these are possible mission-progressing actions—not required or automatically correct answers. Select one to place it in the action box, then adjust it to fit what you have actually learned.
               </p>
               <div className="flex flex-wrap gap-2">
-                {scenario.suggestedProducts.map(prod => (
+                {optionalNextActions(scenario, siteState).map(suggestion => (
                   <button
-                    key={prod}
-                    onClick={() => applySuggestion(prod)}
-                    className="bg-blue-800/50 hover:bg-blue-700 text-blue-100 text-xs px-3 py-2 rounded"
+                    key={suggestion}
+                    onClick={() => applySuggestion(suggestion)}
+                    className="bg-blue-800/50 hover:bg-blue-700 text-left text-blue-100 text-xs px-3 py-2 rounded"
                   >
-                    {prod}
+                    {suggestion}
                   </button>
                 ))}
               </div>
@@ -1572,101 +1756,42 @@ Respond with only the debrief text, no JSON.`;
           )}
 
           {!showProductPanel && (
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowProductPanel(true)}
-                disabled={loading}
-                className="flex-1 bg-slate-700 hover:bg-slate-600 text-white px-6 py-3 rounded font-bold flex items-center justify-center gap-2"
-              >
-                <Package className="w-4 h-4" /> Create Product
-              </button>
+            <div>
               <button
                 onClick={moveOn}
                 disabled={loading}
-                className="flex-1 bg-slate-700 hover:bg-slate-600 text-white px-6 py-3 rounded font-bold flex items-center justify-center gap-2"
+                className="w-full bg-slate-700 hover:bg-slate-600 text-white px-6 py-3 rounded font-bold flex items-center justify-center gap-2"
               >
                 {hasProgress ? 'Conclude Site & Continue' : 'Move to Next Location'} <ArrowRight className="w-4 h-4" />
               </button>
             </div>
           )}
 
-          {showProductPanel && (
-            <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
-              <label className="text-slate-400 text-xs font-bold uppercase tracking-wide block mb-3">Product Type</label>
-              {!customProductMode ? (
-                <div className="space-y-2 mb-4">
-                  {scenario.suggestedProducts.map(prod => (
-                    <button
-                      key={prod}
-                      onClick={() => {
-                        setSelectedProductType(prod);
-                        setProductDetails(getProductWorksheet(prod, scenario));
-                      }}
-                      className={`w-full text-left px-4 py-2 rounded border ${
-                        selectedProductType === prod
-                          ? 'bg-blue-700 border-blue-600 text-white'
-                          : 'bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600'
-                      }`}
-                    >
-                      {prod}
-                    </button>
-                  ))}
-                  <button
-                    onClick={() => setCustomProductMode(true)}
-                    className="w-full text-left px-4 py-2 rounded border border-slate-600 text-slate-300 hover:bg-slate-600 italic"
-                  >
-                    + Custom Product Type
-                  </button>
-                </div>
-              ) : (
-                <div className="mb-4">
-                  <input
-                    type="text"
-                    placeholder="Enter custom product type"
-                    value={customProductText}
-                    onChange={(e) => setCustomProductText(e.target.value)}
-                    className="w-full px-4 py-2 bg-slate-700 text-white rounded border border-slate-600 placeholder-slate-500 mb-2"
-                  />
-                  <button
-                    onClick={() => setCustomProductMode(false)}
-                    className="text-slate-400 hover:text-slate-300 text-sm"
-                  >
-                    ← back to suggestions
-                  </button>
-                </div>
-              )}
+          {showProductPanel && <MissionProductDialog scenario={scenario} onClose={() => setShowProductPanel(false)} onSubmit={submitProduct} />}
+        </div>
+      </div>
+    );
+  }
 
-              <textarea
-                value={productDetails}
-                onChange={(e) => setProductDetails(e.target.value)}
-                placeholder="Select a product above to open its worksheet. Replace the trainee-entry fields with your observations and assessment."
-                rows={16}
-                className="w-full px-4 py-3 bg-slate-900 text-white rounded border border-slate-600 placeholder-slate-500 resize-y mb-2 font-mono text-sm"
-              />
-              <p className="text-amber-200 text-xs mb-4">You may submit the blank worksheet for 5 points. Product quality rises according to how many trainee-entry fields you complete; fully completing fields does not guarantee factual accuracy or doctrinal quality.</p>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={submitProduct}
-                  disabled={(!selectedProductType && !customProductText.trim()) || !productDetails.trim() || loading}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:text-slate-500 text-white px-6 py-3 rounded font-bold flex items-center justify-center gap-2"
-                >
-                  <Package className="w-4 h-4" /> Create
-                </button>
-                <button
-                  onClick={() => {
-                    setShowProductPanel(false);
-                    setSelectedProductType(null);
-                    setCustomProductMode(false);
-                    setCustomProductText('');
-                  }}
-                  className="flex-1 bg-slate-700 hover:bg-slate-600 text-white px-6 py-3 rounded font-bold"
-                >
-                  Cancel
-                </button>
-              </div>
+  // ===== RENDER: TERMINAL MISSION FAILURE =====
+  if (screen === 'missionFailure' && lastOutcome) {
+    const disposition = lastOutcome.missionDisposition || determineMissionDisposition(missionConsequences);
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-red-950 via-slate-900 to-slate-950 flex items-center justify-center p-8">
+        <div className="max-w-3xl w-full">
+          <div className="bg-red-950/70 border-2 border-red-600 rounded-lg p-8">
+            <p className="text-red-300 text-sm font-bold uppercase tracking-widest">Terminal Mission Outcome</p>
+            <h1 className="text-4xl font-bold text-white mt-2">{disposition.status}</h1>
+            <p className="text-red-100 text-lg mt-6">{disposition.reason}</p>
+            <div className="bg-slate-950/60 border border-slate-700 rounded p-5 mt-6">
+              <p className="text-white whitespace-pre-wrap">{lastOutcome.narrativeOutcome}</p>
             </div>
-          )}
+            <p className="text-amber-200 text-sm mt-6">{disposition.trainingNote}</p>
+            <p className="text-slate-300 text-sm mt-3">This action score: <strong className="text-red-300">{lastOutcome.qualityScore}</strong>. The playthrough ends here and proceeds to the AAR.</p>
+            <button onClick={finishTerminatedMission} className="w-full mt-8 bg-red-700 hover:bg-red-600 text-white px-8 py-4 rounded-lg font-bold text-lg">
+              Proceed to Mission-Failure AAR <ChevronRight className="inline ml-2 w-5 h-5" />
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -1677,9 +1802,42 @@ Respond with only the debrief text, no JSON.`;
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-8">
         <div className="max-w-3xl mx-auto">
+          <SubmissionReceipt turns={playtestTurns.filter(t => t.scenario.id === currentScenario().id)} />
           <div className="bg-slate-800 rounded-lg p-8 border border-slate-700 mb-6 text-slate-100 leading-relaxed">
-            <p className="whitespace-pre-wrap">{lastOutcome.narrativeOutcome}</p>
+            {isMarket(currentScenario()) ? <><p className="field-eyebrow mb-5">At the market · The scene responds</p><ConversationPanel text={lastOutcome.narrativeOutcome} /><FollowUpNotes site={currentSiteState()} /></> : <p className="whitespace-pre-wrap">{lastOutcome.narrativeOutcome}</p>}
           </div>
+
+          {lastOutcome.actionInterpretation && (
+            <details className="bg-indigo-950/35 rounded-lg p-5 border border-indigo-600 mb-6">
+              <summary className="text-indigo-200 font-bold cursor-pointer">How This Action Was Interpreted</summary>
+              <p className="text-slate-300 text-xs mt-2 mb-4">
+                Unrecognized details are not treated as established facts or completed outcomes. If this response missed your intent, flag it below and share the downloaded feedback with your administrator.
+              </p>
+              <div className="grid md:grid-cols-2 gap-3 text-sm">
+                <p><span className="text-slate-400">Intent:</span> <span className="text-white">{lastOutcome.actionInterpretation.intent}</span></p>
+                <p><span className="text-slate-400">Mission relevance:</span> <span className="text-white">{lastOutcome.actionInterpretation.missionRelevance}</span></p>
+                <p><span className="text-slate-400">Permission:</span> <span className="text-white">{lastOutcome.actionInterpretation.permission}</span></p>
+                <p><span className="text-slate-400">Professional risk:</span> <span className="text-white">{lastOutcome.actionInterpretation.professionalRisk}</span></p>
+                <p><span className="text-slate-400">Protected population:</span> <span className="text-white">{lastOutcome.actionInterpretation.protectedPopulation}</span></p>
+                <p><span className="text-slate-400">Interpreter role:</span> <span className="text-white">{lastOutcome.actionInterpretation.interpreterRole}</span></p>
+              </div>
+              <div className="mt-4">
+                <p className="text-slate-400 text-xs font-bold uppercase">Actions understood</p>
+                <ul className="list-disc pl-5 text-slate-200 text-sm mt-1">
+                  {lastOutcome.actionInterpretation.actions.map((item, index) => <li key={index}>{typeof item === 'string' ? item : item.description}{typeof item === 'object' && <span className="text-slate-400"> — {item.negated ? 'not performed' : item.hypothetical ? 'hypothetical' : item.kinds?.join(', ') || 'unresolved'}</span>}</li>)}
+                </ul>
+              </div>
+              <p className="text-indigo-100 text-sm mt-4"><strong>Decision:</strong> {lastOutcome.worldUpdate?.classification || 'Legacy interpretation'}</p>
+              {lastOutcome.actionInterpretation.ambiguities?.length > 0 && <p className="text-amber-200 text-sm mt-2">Some details remain unresolved. They have not earned credit or caused a penalty.</p>}
+            </details>
+          )}
+
+          {lastOutcome.coachingInsight && (
+            <div className="bg-amber-950/40 rounded-lg p-5 border border-amber-600 mb-6">
+              <p className="text-amber-300 text-xs font-bold uppercase tracking-wide mb-2">Coaching After the Consequence</p>
+              <p className="text-amber-50 leading-relaxed">{lastOutcome.coachingInsight}</p>
+            </div>
+          )}
 
           {Object.keys(lastDeltas).length > 0 && (
             <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700 mb-6">
@@ -1703,12 +1861,58 @@ Respond with only the debrief text, no JSON.`;
             </div>
           )}
 
+          <div className="bg-slate-800/70 rounded-lg p-5 border border-slate-600 mb-6">
+            <p className="text-slate-200 font-bold">Help improve this response</p>
+            <p className="text-slate-400 text-sm mt-1">Nothing is sent automatically. Flag inaccurate feedback now, then export the playtest report when you are ready.</p>
+            {playtestTurns.some(t => t.reviewFlags?.length) && <p className="text-amber-200 text-sm mt-2">Unrecognized details have also been logged automatically in this browser. The exported report includes them alongside your manual flags and original submissions.</p>}
+            {!testerFeedbackOpen ? (
+              <div className="flex flex-wrap gap-3 mt-4">
+                <button onClick={() => setTesterFeedbackOpen(true)} className="bg-amber-700 hover:bg-amber-600 text-white px-4 py-2 rounded font-semibold">
+                  Flag This Response
+                </button>
+                <button onClick={exportPlaytestReport} className="bg-indigo-700 hover:bg-indigo-600 text-white px-4 py-2 rounded font-semibold">
+                  Export Playtest Report ({playtestTurns.length} turns)
+                </button>
+              </div>
+            ) : (
+              <div className="mt-4 space-y-4">
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    ['misunderstood-action', 'Misunderstood action'],
+                    ['missed-risk', 'Missed risk or misconduct'],
+                    ['wrong-relationship', 'Wrong relationship change'],
+                    ['story-continuity', 'Story did not continue'],
+                    ['unrealistic-reaction', 'Unrealistic reaction'],
+                    ['other', 'Other']
+                  ].map(([value, label]) => (
+                    <button key={value} onClick={() => toggleFeedbackCategory(value)} className={`px-3 py-2 rounded text-sm border ${testerFeedback.categories.includes(value) ? 'bg-amber-700 border-amber-400 text-white' : 'bg-slate-900 border-slate-600 text-slate-300'}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <label className="block text-sm text-slate-300">
+                  What should the system have understood or done instead?
+                  <textarea value={testerFeedback.expectedResponse} onChange={event => setTesterFeedback(prev => ({ ...prev, expectedResponse: event.target.value }))} className="w-full mt-2 bg-slate-950 border border-slate-600 rounded p-3 text-white" rows="3" placeholder="Example: The player excluded the interpreter and should not have received credit for interpreter support." />
+                </label>
+                <label className="block text-sm text-slate-300">
+                  Additional notes (optional)
+                  <textarea value={testerFeedback.notes} onChange={event => setTesterFeedback(prev => ({ ...prev, notes: event.target.value }))} className="w-full mt-2 bg-slate-950 border border-slate-600 rounded p-3 text-white" rows="2" />
+                </label>
+                <div className="flex gap-3">
+                  <button onClick={saveTesterFeedback} className="bg-amber-700 hover:bg-amber-600 text-white px-4 py-2 rounded font-semibold">Save Flag</button>
+                  <button onClick={() => setTesterFeedbackOpen(false)} className="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded">Cancel</button>
+                </div>
+              </div>
+            )}
+            {reportNotice && <p className="text-emerald-300 text-sm mt-3">{reportNotice}</p>}
+          </div>
+
           <div className="grid sm:grid-cols-2 gap-3">
             <button
               onClick={continueFromOutcome}
               className="bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded font-bold text-lg flex items-center justify-center gap-2"
             >
-              {leadReturnPending ? 'Return with Findings' : pendingAdvance ? 'Continue' : 'Back to Location'} <ChevronRight className="w-5 h-5" />
+              {leadReturnPending ? 'Return with Findings' : pendingAdvance ? 'Continue' : 'Continue Scene'} <ChevronRight className="w-5 h-5" />
             </button>
             <button
               onClick={saveAndExit}
@@ -1727,6 +1931,7 @@ Respond with only the debrief text, no JSON.`;
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-8">
         <div className="max-w-3xl mx-auto">
+          <SubmissionReceipt turns={playtestTurns.filter(t => t.scenario.id === currentScenario().id)} />
           <div className="bg-green-900/30 border border-green-700 rounded-lg p-4 mb-6">
             <p className="text-green-200 font-semibold">{lastOutcome.product.name}</p>
             <p className="text-green-300 text-sm mt-1">Filed with: {lastOutcome.product.recipient}</p>
@@ -1734,24 +1939,24 @@ Respond with only the debrief text, no JSON.`;
           </div>
 
           <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6 text-slate-100 overflow-x-auto">
-            <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed">{lastOutcome.product.content}</pre>
+            <p className="whitespace-pre-wrap mb-6">{lastOutcome.narrativeOutcome}</p>
+            {lastOutcome.product.mode !== 'mission-brief' && <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed">{lastOutcome.product.content}</pre>}
           </div>
 
-          <div className="bg-slate-800 rounded-lg p-4 border border-slate-700 mb-6">
+          {lastOutcome.product.mode === 'mission-brief' ? <section className="bg-green-950/40 border border-green-600 rounded-lg p-5 mb-6 text-white"><h2 className="font-bold text-xl">Mission product recorded</h2><p className="mt-2">Reporting-practice credit recorded once for this site. The recipient, purpose and key finding are saved for leader review. Repeated submissions do not add more credit.</p><p className="text-sm text-green-200 mt-2">A full template and factual accuracy were not assessed. No document was sent outside this exercise.</p></section> : <div className="bg-slate-800 rounded-lg p-4 border border-slate-700 mb-6">
             <p className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">Worksheet Completion Score</p>
-            <p className="text-2xl font-bold text-white">{lastOutcome.qualityScore} / 100</p>
+            <p className="text-2xl font-bold text-white">{lastOutcome.product.completionScore ?? lastOutcome.productCompletionPercent ?? 0} / 100</p>
             <p className="text-slate-300 text-sm mt-2">Trainee-entry fields completed: {lastOutcome.productCompletionPercent ?? 0}%</p>
-            <p className="text-slate-300 text-sm mt-2">Type: {lastOutcome.assessmentType}</p>
-            <p className="text-slate-300 text-sm">Measures Met: {lastOutcome.performanceMeasures}</p>
-            <p className="text-amber-200 text-xs mt-3">This score measures worksheet completion only. Accuracy, source validation, analysis, and doctrinal quality remain part of the broader mission evaluation.</p>
-          </div>
+            <p className="text-slate-300 text-sm mt-2">Current site practice score across all dimensions: {lastOutcome.qualityScore} / 100</p>
+            <p className="text-amber-200 text-xs mt-3">Worksheet completion is not a factual-accuracy grade. Source validation, analysis, and doctrinal quality require instructor review.</p>
+          </div>}
 
           <div className="grid sm:grid-cols-2 gap-3">
             <button
               onClick={continueFromOutcome}
               className="bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded font-bold text-lg flex items-center justify-center gap-2"
             >
-              {pendingAdvance ? 'Continue' : 'Back to Location'} <ChevronRight className="w-5 h-5" />
+              {pendingAdvance ? 'Continue' : 'Continue Scene'} <ChevronRight className="w-5 h-5" />
             </button>
             <button
               onClick={saveAndExit}
@@ -1779,10 +1984,26 @@ Respond with only the debrief text, no JSON.`;
 
   // ===== RENDER: DEBRIEF =====
   if (screen === 'debrief' && debrief) {
-    const totalScore = missionRecords.reduce((sum, r) => sum + (r.qualityScore || 0), 0);
-    const avgScore = missionRecords.length > 0 ? (totalScore / missionRecords.length).toFixed(1) : 0;
-    const engagementProfile = buildEngagementProfile(missionRecords, allProducts, missionConsequences, readinessResults);
+    const report = getPerformanceReport();
+    const avgScore = report.overallScore;
+    const evidenceDimensions = report.dimensions.map(d => ({
+      ...d, description: 'Local practice rubric',
+      evidence: d.evidence.length ? d.evidence.length + ' recorded scoring decision(s); see the downloadable evidence report.' : 'No demonstrated evidence recorded.'
+    }));
+    const readinessScores = report.readiness.map(r => r.firstAttemptScore).filter(n => n !== null);
+    const engagementProfile = {
+      dimensions: evidenceDimensions, overallScore: avgScore,
+      readinessScore: readinessScores.length ? Math.round(readinessScores.reduce((a, b) => a + b, 0) / readinessScores.length) : null,
+      strongest: [...evidenceDimensions].filter(d => d.score > 0).sort((a, b) => b.score - a.score).slice(0, 2),
+      priorities: [...evidenceDimensions].sort((a, b) => a.score - b.score).slice(0, 2),
+      tendency: 'Evidence from this playthrough',
+      tendencyStatement: report.scoreExplanation, confidence: report.legacyHistory ? 'Limited legacy record' : 'Traceable local decisions',
+      confidenceExplanation: 'These are practice scores, not a validated measure of job proficiency.',
+      nextChallenge: 'Review the lowest-scoring areas and the decision evidence with your first-line leader.'
+    };
     const decisionTimeline = buildDecisionTimeline(missionRecords);
+    const missionDisposition = worldState.missionOutcome || { terminated: false };
+    const recognition = recommendTrainingRecognition(missionRecords, allProducts, missionConsequences, engagementProfile, missionDisposition);
 
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-8">
@@ -1790,6 +2011,41 @@ Respond with only the debrief text, no JSON.`;
           <div className="bg-gradient-to-r from-amber-700 to-amber-800 rounded-lg p-8">
             <h1 className="text-4xl font-bold text-white">MISSION DEBRIEF</h1>
             <p className="text-amber-100 mt-2">{personalizedMissionLabel()} — After-Action Review</p>
+            <p className="text-amber-200 text-xs mt-2">Build {APP_VERSION} · Local engine</p>
+          </div>
+
+          <section className="bg-green-950/40 border border-green-600 rounded-lg p-6">
+            <h2 className="text-2xl font-bold text-white">Share Your Performance Report</h2>
+            {report.unvisitedDestinations.length > 0 && <details className="text-slate-200 my-4"><summary className="cursor-pointer font-bold">Tradeoffs: {report.unvisitedDestinations.length} destinations left for handover</summary><p className="my-2">These are unresolved knowledge gaps, not automatic failures. Discuss why you prioritized the sites you visited and what the next team should follow up.</p><ul className="list-disc pl-5">{report.unvisitedDestinations.map(site => <li key={site.id}>{site.location}</li>)}</ul></details>}
+            <p className="text-slate-200 mt-2">{report.status} · {report.overallScore}/100 practice score. Includes readiness results, products, decision evidence, and space for first-line-leader review.</p>
+            {!report.readinessComplete && <p className="text-amber-200 mt-2">Readiness checks were skipped or incomplete. The report records this explicitly.</p>}
+            <div className="flex flex-wrap gap-3 mt-4">
+              <button onClick={printPerformanceReport} className="bg-green-700 hover:bg-green-600 text-white px-5 py-3 rounded font-bold">Print / Save as PDF</button>
+              <button onClick={() => exportPerformanceReport('html')} className="bg-blue-700 hover:bg-blue-600 text-white px-5 py-3 rounded font-bold">Download Leader Report</button>
+              <button onClick={() => exportPerformanceReport('json')} className="bg-slate-700 hover:bg-slate-600 text-white px-5 py-3 rounded font-bold">Download Evidence JSON</button>
+            </div>
+            <p className="text-slate-400 text-xs mt-3">{report.provenance} Reports contain the text you entered; review them before sharing.</p>
+            {reportNotice && <p role="status" className="text-green-200 mt-3">{reportNotice}</p>}
+          </section>
+
+          <CommandContinuityPanel world={worldState} scenarios={missionScenarios} records={missionRecords} reviewOnly />
+
+          <div className="bg-blue-950/60 border-2 border-blue-600 rounded-lg p-5">
+            <p className="text-blue-200 text-xs font-bold uppercase tracking-wide">AAR Learning Activities</p>
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mt-2">
+              <div>
+                <h2 className="text-white text-xl font-bold">Awards recommendation exercise</h2>
+                <p className="text-slate-200 text-sm mt-1">
+                  Compare recognition levels and practice writing the achievement, impact, scope, duration, and evidence.
+                </p>
+              </div>
+              <a
+                href="#awards-practice"
+                className="shrink-0 text-center bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded font-bold"
+              >
+                Go to Awards Practice
+              </a>
+            </div>
           </div>
 
           <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 space-y-6">
@@ -1809,8 +2065,8 @@ Respond with only the debrief text, no JSON.`;
                   <p className="text-white text-2xl font-bold mt-1">{allProducts.length}</p>
                 </div>
                 <div className="bg-slate-700/50 rounded p-4">
-                  <p className="text-slate-400 text-xs font-bold uppercase">Pre-Mission Readiness</p>
-                  <p className="text-white text-2xl font-bold mt-1">{engagementProfile.readinessScore || 'N/A'}</p>
+                  <p className="text-slate-400 text-xs font-bold uppercase">Readiness · First Attempt</p>
+                  <p className="text-white text-2xl font-bold mt-1">{engagementProfile.readinessScore ?? 'Not taken'}</p>
                 </div>
               </div>
 
@@ -1889,6 +2145,135 @@ Respond with only the debrief text, no JSON.`;
               </div>
             </div>
 
+            {routeDecisions.length > 0 && <section className="border-t border-slate-700 pt-6" aria-labelledby="route-review">
+              <h2 id="route-review" className="text-2xl font-bold text-white mb-2">ROUTE CHOICES</h2>
+              <p className="text-slate-400 text-sm mb-4">Your order of visits and optional reasoning are recorded for discussion, not scored.</p>
+              <ol className="space-y-3">{routeDecisions.map(choice => <li key={choice.scenarioId} className="bg-slate-700/50 rounded p-4">
+                <p className="text-white font-semibold">Day {choice.day}: {choice.location}</p>
+                <p className="text-slate-300 text-sm mt-1">{choice.rationale || 'No planning rationale entered (optional).'}</p>
+              </li>)}</ol>
+            </section>}
+
+            <div id="awards-practice" className="border-t border-slate-700 pt-6 scroll-mt-6">
+              <h2 className="text-2xl font-bold text-white mb-4">TRAINING RECOGNITION RECOMMENDATION</h2>
+              <div className={`rounded-lg p-5 border ${recognition.level.startsWith('No favorable') ? 'bg-red-950/40 border-red-800' : 'bg-amber-950/30 border-amber-700'}`}>
+                <p className="text-amber-300 text-xs font-bold uppercase tracking-wide">{recognition.category}</p>
+                <p className="text-white text-2xl font-bold mt-1">{recognition.level}</p>
+                <p className="text-slate-100 mt-3">{recognition.rationale}</p>
+                <p className="text-slate-300 text-sm mt-3"><strong>Next step:</strong> {recognition.nextStep}</p>
+                <p className="text-slate-400 text-xs mt-4">{recognition.regulatoryBasis}</p>
+                <p className="text-amber-200 text-xs mt-2">{recognition.disclaimer}</p>
+              </div>
+            </div>
+
+            <div className="border-t border-slate-700 pt-6">
+              <h2 className="text-2xl font-bold text-white">AWARDS EDUCATION &amp; PRACTICE</h2>
+              <p className="text-slate-300 mt-2">
+                Practice building an evidence-based recommendation. This exercise teaches how to distinguish recognition levels;
+                it does not create, submit, or approve an award.
+              </p>
+
+              <div className="grid md:grid-cols-2 gap-3 mt-5">
+                {RECOGNITION_LEVELS.map(level => (
+                  <div key={level.id} className="bg-slate-700/50 border border-slate-600 rounded p-4">
+                    <p className="text-blue-200 font-semibold">{level.label}</p>
+                    <p className="text-slate-200 text-sm mt-2">{level.use}</p>
+                    <p className="text-amber-200 text-xs mt-2"><strong>Caution:</strong> {level.caution}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="bg-slate-900/60 border border-blue-800 rounded-lg p-5 mt-6">
+                <h3 className="text-xl font-bold text-white">Build a Practice Recommendation</h3>
+                <p className="text-slate-300 text-sm mt-1">
+                  Use the evidence from this mission. Strong recommendations explain the Soldier's specific contribution,
+                  measurable effect, scope, duration, and supporting records.
+                </p>
+
+                <label className="block text-blue-200 text-sm font-bold mt-5 mb-2">Proposed recognition level</label>
+                <select
+                  value={awardPractice.level}
+                  onChange={event => {
+                    setAwardPractice({ ...awardPractice, level: event.target.value });
+                    setAwardPracticeResult(null);
+                  }}
+                  className="w-full bg-slate-700 border border-slate-500 rounded px-4 py-3 text-white"
+                >
+                  <option value="">Select the level you believe the record supports</option>
+                  {RECOGNITION_LEVELS.map(level => <option key={level.id} value={level.id}>{level.label}</option>)}
+                </select>
+
+                {[
+                  ['achievement', 'Specific achievement', 'What did the Soldier personally do? Use specific actions rather than duty-description language.'],
+                  ['impact', 'Measurable or observable impact', 'What changed, who benefited, what risk was reduced, or what decision was enabled?'],
+                  ['scope', 'Scope and duration', 'Identify the period, locations, organizations affected, responsibility, and whether this was one act or sustained service.'],
+                  ['support', 'Supporting evidence', 'List orders, reports, products, evaluations, rosters, messages, witnesses, or partner feedback that substantiate the recommendation.']
+                ].map(([field, label, placeholder]) => (
+                  <div key={field} className="mt-4">
+                    <label className="block text-blue-200 text-sm font-bold mb-2">{label}</label>
+                    <textarea
+                      value={awardPractice[field]}
+                      onChange={event => {
+                        setAwardPractice({ ...awardPractice, [field]: event.target.value });
+                        setAwardPracticeResult(null);
+                      }}
+                      placeholder={placeholder}
+                      rows={3}
+                      className="w-full bg-slate-700 border border-slate-500 rounded px-4 py-3 text-white placeholder-slate-400"
+                    />
+                  </div>
+                ))}
+
+                <button
+                  type="button"
+                  disabled={!awardPractice.level}
+                  onClick={() => setAwardPracticeResult(gradeAwardPractice(awardPractice, recognition))}
+                  className="mt-5 w-full bg-blue-700 hover:bg-blue-600 disabled:bg-slate-600 disabled:text-slate-400 text-white font-bold px-5 py-3 rounded"
+                >
+                  Review My Recommendation
+                </button>
+
+                {awardPracticeResult && (
+                  <div className={`mt-5 rounded-lg border p-5 ${awardPracticeResult.aligned ? 'bg-green-950/30 border-green-700' : 'bg-amber-950/30 border-amber-700'}`}>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-slate-300 text-xs font-bold uppercase">Practice exercise score</p>
+                        <p className="text-white text-3xl font-bold">{awardPracticeResult.score}/100</p>
+                      </div>
+                      <div className="text-sm">
+                        <p className="text-slate-200"><strong>Your selection:</strong> {awardPracticeResult.selectedLabel}</p>
+                        <p className="text-slate-200 mt-1"><strong>Simulator comparison:</strong> {awardPracticeResult.expectedLabel}</p>
+                      </div>
+                    </div>
+                    <ul className="list-disc pl-5 text-slate-100 text-sm mt-4 space-y-2">
+                      {awardPracticeResult.feedback.map(item => <li key={item}>{item}</li>)}
+                    </ul>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-6">
+                <h3 className="text-xl font-bold text-white">Eligibility-Based Awards Quick Reference</h3>
+                <p className="text-slate-300 text-sm mt-1">
+                  These forms of recognition are based on official eligibility rules, qualifying operations, dates, orders,
+                  or service—not the simulator's performance score.
+                </p>
+                <div className="space-y-3 mt-4">
+                  {ELIGIBILITY_REFERENCES.map(([name, guidance]) => (
+                    <div key={name} className="bg-slate-700/40 border border-slate-600 rounded p-4">
+                      <p className="text-purple-200 font-semibold">{name}</p>
+                      <p className="text-slate-200 text-sm mt-1">{guidance}</p>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-amber-200 text-xs mt-4">
+                  Always verify current eligibility and processing requirements with the servicing S-1/G-1 and official Army
+                  Human Resources Command guidance. Participation in an exercise or humanitarian activity does not automatically
+                  create entitlement.
+                </p>
+              </div>
+            </div>
+
             <div className="border-t border-slate-700 pt-6">
               <h2 className="text-2xl font-bold text-white mb-4">KEY DECISIONS</h2>
               {decisionTimeline.length ? (
@@ -1946,7 +2331,7 @@ Respond with only the debrief text, no JSON.`;
                 <div className="bg-red-950/40 border border-red-800 rounded p-4 space-y-4">
                   {missionConsequences.map(item => (
                     <div key={item.id}>
-                      <p className="text-white font-semibold">{item.title} ({item.status})</p>
+                      <p className="text-white font-semibold">{item.title} ({item.status}; {item.occurrenceCount || 1} occurrence{(item.occurrenceCount || 1) === 1 ? '' : 's'})</p>
                       <p className="text-red-100 text-sm mt-1">{item.categories.join('; ')}</p>
                       <ul className="text-red-100 text-sm list-disc pl-5 mt-2">
                         {item.persistentEffects.map(effect => <li key={effect}>{effect}</li>)}

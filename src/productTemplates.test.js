@@ -29,3 +29,16 @@ test('keeps source-grounded KLE, SITREP, CAOPREP, and analysis products distinct
   expect(buildTrainingProduct('ASCOPE Worksheet', scenario).content).toContain('AREAS');
   expect(buildTrainingProduct('PMESII-PT Worksheet', scenario).content).toContain('POLITICAL');
 });
+
+test('creates a DA Form 1559 training worksheet with safe routing distinctions', () => {
+  const product = buildTrainingProduct('Inspector General Action Request (DA Form 1559)', scenario);
+  expect(product.type).toBe('Inspector General Action Request');
+  expect(product.content).toContain('SPECIFIC ACTION REQUESTED');
+  expect(product.content).toContain('INFORMATION PERTAINING TO THE REQUEST');
+  expect(product.content).toContain('Sexual Assault Response Coordinator');
+  expect(product.content).toContain('Restricted and Unrestricted reporting choices');
+  expect(product.content).toContain('DO NOT submit fictional scenario information');
+  expect(product.content).toContain('usarmy.usarc.usarc-hq.list.ig@army.mil');
+  expect(product.recipient).toContain('Servicing/local Inspector General');
+  expect(product.citationStandard).toContain('DA Form 1559');
+});

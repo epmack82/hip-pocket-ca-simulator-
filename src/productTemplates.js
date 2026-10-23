@@ -341,6 +341,71 @@ Photos / captions / supporting assessments: ${blank}
 Point of contact and required routing: ${blank}`;
 }
 
+function inspectorGeneralActionRequest(scenario) {
+  return `${header('DA FORM 1559 - INSPECTOR GENERAL ACTION REQUEST - TRAINING WORKSHEET', scenario)}
+
+IMPORTANT TRAINING NOTICE
+This is a fictional practice worksheet. DO NOT submit fictional scenario information, invented names, or exercise details to a real Inspector General office.
+Reference basis: DA Form 1559 (APR 2021) and AR 20-1.
+
+ROUTING DECISION - CHOOSE THE APPROPRIATE PATH FIRST
+- Immediate danger, ongoing violence, or urgent medical need: move to safety and contact emergency services / military or civilian law enforcement as appropriate.
+- Sexual assault: contact a Sexual Assault Response Coordinator (SARC), Victim Advocate (VA), healthcare provider, or the DoD Safe Helpline (877-995-5247 / safehelpline.org) to understand Restricted and Unrestricted reporting choices. An IG worksheet is not a substitute for confidential victim advocacy.
+- Suspected criminal conduct: preserve safety and facts; contact the appropriate law-enforcement or Army CID channel. An IG may assist or refer, but is not the emergency response.
+- Systemic command problems, abuse of authority, reprisal concerns, administrative injustice, policy failures, or requests for assistance: contact the servicing/local IG. USARC guidance recommends the local IG first.
+- USARC IG published submission address: usarmy.usarc.usarc-hq.list.ig@army.mil. Verify the current address and servicing office before any real submission.
+- Never submit classified information through ordinary email or this training application.
+
+1. REQUESTER INFORMATION
+Last, first, middle initial: ${blank}
+Grade / rank: ${blank}
+DoD ID: ${blank}
+Component / duty status: ${blank}
+Preferred contact telephone: ${blank}
+Email address(es): ${blank}
+Unit and complete military address / unit POC telephone: ${blank}
+Preferred mailing address, if different: ${blank}
+
+2. SPECIFIC ACTION REQUESTED
+What do you want the IG to do for you? State a clear, supportable requested action: ${blank}
+
+3. PRIOR CONTACT
+Have you contacted your chain of command or another agency? YES / NO: ${blank}
+Explain either answer, including who, when, method, and response: ${blank}
+If you did not use the chain, explain safety, conflict-of-interest, reprisal, confidentiality, or other concern: ${blank}
+
+4. INFORMATION PERTAINING TO THE REQUEST
+Who was involved (names, grades, roles, organizations): ${blank}
+What occurred - separate personally observed facts from reports or assumptions: ${blank}
+When it occurred (dates / times / sequence): ${blank}
+Where it occurred: ${blank}
+Applicable order, policy, authority, duty, or standard if known: ${blank}
+Witnesses and what each may know: ${blank}
+Documents, messages, photographs, records, or other supporting material: ${blank}
+Harm, impact, or continuing risk: ${blank}
+Corrective action already attempted and result: ${blank}
+
+5. RELEASE CONSENT - DISCUSS THE CONSEQUENCES OF EACH CHOICE
+Consent / do not consent to release personal information outside IG channels but within DoD channels: ${blank}
+Consent / do not consent to release supporting documents outside IG channels but within DoD channels: ${blank}
+Training note: withholding consent may limit resolution. Do not promise confidentiality; ask the IG to explain applicable protections and disclosure limits.
+
+6. CERTIFICATION
+Signature: ${blank}
+Date (YYYYMMDD): ${blank}
+
+QUALITY CHECK BEFORE A REAL SUBMISSION
+- Is the form signed and dated?
+- Is the requested action clear?
+- Are facts, dates, names, sources, and assumptions distinguished?
+- Are relevant supporting documents identified and unaltered?
+- Is the correct servicing office confirmed?
+- Has classified, medical, victim, or other sensitive information been handled only through authorized channels?
+
+TRAINING ROUTING RESULT
+Recommended training review: servicing/local IG or instructor, with separate emergency, SHARP, medical, legal, law-enforcement, or CID routing when applicable.`;
+}
+
 const ascopeLabels = [
   ['Areas', 'physical, political, administrative, or social areas'],
   ['Structures', 'existing infrastructure and physical structures'],
@@ -368,6 +433,7 @@ export function getProductWorksheet(productName, scenario = {}) {
   if (/key leader|\bkle\b/.test(normalized)) return kleRecord(scenario);
   if (/sitrep|situation report/.test(normalized)) return sitrep(scenario);
   if (/caoprep|civil affairs operations report/.test(normalized)) return caOperationsReport(scenario);
+  if (/inspector general|da\s*1559|\big action request\b|\big complaint\b/.test(normalized)) return inspectorGeneralActionRequest(scenario);
   if (/link diagram|stakeholder map|network map/.test(normalized)) return stakeholderMap(scenario, '');
   if (/baseball card/.test(normalized)) return baseballCard(scenario);
   if (/ascope/.test(normalized)) return frameworkWorksheet('ASCOPE', ascopeLabels, scenario);
@@ -398,6 +464,8 @@ export function buildTrainingProduct(productName, scenario = {}, traineeDetails 
     type = 'SITREP';
   } else if (/caoprep|civil affairs operations report/.test(normalized)) {
     type = 'CA Operations Report';
+  } else if (/inspector general|da\s*1559|\big action request\b|\big complaint\b/.test(normalized)) {
+    type = 'Inspector General Action Request';
   } else if (/ascope|pmesii/.test(normalized)) {
     type = 'Analysis Worksheet';
   } else if (/information update|civil information|civinfo/.test(normalized)) {
@@ -413,8 +481,12 @@ export function buildTrainingProduct(productName, scenario = {}, traineeDetails 
     name: productName,
     type,
     content,
-    recipient: 'S-9 / CIM Cell (training routing; adjust by subject)',
-    citationStandard: 'Training template informed by ASCOPE and PMESII-PT; instructor validation required',
+    recipient: /inspector general|da\s*1559|\big action request\b|\big complaint\b/.test(normalized)
+      ? 'Servicing/local Inspector General (training only; verify current real-world routing)'
+      : 'S-9 / CIM Cell (training routing; adjust by subject)',
+    citationStandard: /inspector general|da\s*1559|\big action request\b|\big complaint\b/.test(normalized)
+      ? 'DA Form 1559 (APR 2021) and AR 20-1; separate emergency, SHARP, medical, legal, law-enforcement, or CID routing may apply'
+      : 'Training template informed by ASCOPE and PMESII-PT; instructor validation required',
     templateVersion: '1.0'
   };
 }
