@@ -41,6 +41,10 @@ export default function MarketScenePanel({ scenario, site = {}, text, continued 
         <p className="field-small">Use a character’s name or role in your action. A person’s account is one perspective, not the view of the whole community.</p>
       </section>
       <FollowUpNotes site={site} />
+      {!!site.conversationEvents?.length && <details className="field-followups"><summary className="field-eyebrow">Conversation journal · What you have discussed</summary>
+        <p className="field-small">Recorded actions, not proof of agreement. Claims still need validation.</p>
+        <ul>{site.conversationEvents.map(event => <li key={event.id}><strong>{marketCharacter(event.participant).name}</strong><p>{event.subject}</p><span>{event.evidenceIds.length ? 'Attributed account recorded' : 'No new evidence recorded'}</span></li>)}</ul>
+      </details>}
     </div>
   </section>;
 }

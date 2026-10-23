@@ -41,10 +41,30 @@ const profiles = {
   }
 };
 
-export function knowledgeFor(scenario = {}) {
+// Original fictional perspectives. None establishes the cause of a closure.
+const marketVoices = {
+  'produce vendor': {
+    claim: 'From my stall I see trade near the entrance, but some back-row stalls stay closed. I cannot tell you why their owners have not reopened.',
+    reply: 'Please speak to those owners before writing that their situation is the same as mine. An allocated stall and a working livelihood are different things.'
+  },
+  'transport cooperative representative': {
+    claim: 'Goods are moving through the main entrance, but that does not tell us whether every vendor can bring stock to market. I cannot account for each closed stall.',
+    reply: 'Separate the route being open from a vendor being able to use it. Ask the vendors about their own journeys before deciding transport explains the closures.'
+  },
+  'market association chair': {
+    claim: 'The summary says trading is normal, yet some stalls remain closed. I want the people absent from this conversation to have a chance to explain their situation.',
+    reply: 'Please do not turn my account into everyone’s agreement. Compare the register with what you see, then hear from the people whose stalls are closed.'
+  },
+  'municipal licensing officer': {
+    claim: 'Our register lists allocated spaces. An entry is not a daily attendance check, and it does not explain why a stall might be closed.',
+    reply: 'I can explain what that record measures, but I cannot supply a reason it never recorded. Keep the allocation figures separate from observations of trading.'
+  }
+};
+
+export function knowledgeFor(scenario = {}, speaker = '') {
   const site = `${scenario.siteType || ''} ${scenario.location || ''}`.toLowerCase();
   const key = ['school', 'water', 'substation', 'clinic', 'market'].find(name => site.includes(name)) || 'default';
-  return { ...profiles[key], id: `${scenario.id || 'site'}-service-access` };
+  return { ...profiles[key], ...(key === 'market' ? marketVoices[speaker] : {}), id: `${scenario.id || 'site'}-service-access` };
 }
 
 export const sentenceCase = value => String(value || 'Local stakeholder').replace(/^./, c => c.toUpperCase());

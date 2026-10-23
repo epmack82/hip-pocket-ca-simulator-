@@ -1,7 +1,7 @@
 import { RUBRIC_VERSION, SCORE_DIMENSIONS } from './worldUpdate';
 import { commandBriefViews, commandHandover } from './commandContinuity';
 
-export const APP_VERSION = '4.8.0-command-preview';
+export const APP_VERSION = '4.8.1-market-playtest';
 const average = values => values.length ? Math.round(values.reduce((sum, n) => sum + n, 0) / values.length) : 0;
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 

@@ -25,6 +25,8 @@ import { submitCommandBrief } from './commandContinuity';
 import { CAMPAIGNS, campaignDay, campaignTradeoffs, emptyChiefPlan } from './campaign';
 import ChiefPlanningScreen from './ChiefPlanningScreen';
 import MarketScenePanel, { ConversationPanel, FollowUpNotes } from './MarketScenePanel';
+import CampaignMap from './CampaignMap';
+import MarketActionHelper from './MarketActionHelper';
 import { isMarket } from './marketScene';
 
 // ===== SCENARIO DATA (MOVED OUTSIDE COMPONENT) =====
@@ -1565,6 +1567,11 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
             <p className="text-slate-400 text-sm mt-3">Read the scene, then describe what your team says or does. Use Create a Product to submit documents. Conclude the site when you are ready to plan your next move.</p>
           </section>
 
+          <details className="mb-6 rounded-lg border border-cyan-700 bg-slate-900 p-4 text-white">
+            <summary className="cursor-pointer font-semibold">AO Map · Current location: {scenario.location}</summary>
+            <CampaignMap scenarios={missionScenarios} records={missionRecords} selected={scenario.id} visitLimit={visitLimit} sites={worldState.sites || {}} readOnly />
+          </details>
+
           <div className="flex flex-col">
           <CommandArrivalNote world={worldState} scenario={scenario} scenarios={missionScenarios} records={missionRecords} />
           {missionConsequences.length > 0 && (
@@ -1699,6 +1706,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
 
           <div className="order-5 bg-gradient-to-br from-green-950/50 to-slate-800 rounded-lg p-7 border-2 border-green-500 mb-6 shadow-lg shadow-green-950/20">
             <label className="text-green-300 text-xl font-bold uppercase tracking-wide block mb-2">What Will You Do Next?</label>
+            {isMarket(scenario) && <MarketActionHelper key={scenario.id} stakeholders={scenario.keyStakeholders} onDraft={text => setActionText(current => current ? current + '\n' + text : text)} />}
             <p className="text-slate-200 mb-4">
               Make the next decision in the story. Describe what you actually say or do based on the continuity scene, current mission status, and information requiring validation.
             </p>
