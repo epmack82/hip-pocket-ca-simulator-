@@ -64,7 +64,7 @@ export function conductPolicy(record, world = {}) {
       'The interpreter stays outside as instructed. Inside, ' + who + ' pauses when the team tries to continue privately: “How will we make sure we understand each other?” Tea is served, but no translated discussion or new information is credited.',
       'Establish a shared language or an approved alternative before continuing. Explain confidentiality boundaries respectfully; excluding the interpreter does not make them an unseen translator.', { title: 'Interpreter excluded', interpreterStatus: 'excluded', scores: { coordination: -12 } }));
     else if (has(act, 'interpreter-substitution')) findings.push(incident(record, act, world, 'interpreter-substituted-for-soldier', 'concern',
-      'The interpreter receives the instruction, then looks back toward the departing Soldier. ' + who + ' asks who is responsible for the meeting. A teammate steps in to keep the host engaged while Soldier leadership is restored.',
+      'The interpreter pauses at the instruction to take responsibility for the engagement. ' + who + ' asks who will speak for the team and own its decisions. A teammate asks the Soldier to clarify the division of responsibilities.',
       'The interpreter facilitates language and meaning. The team retains ownership of introductions, decisions, and follow-through.', { title: 'Engagement delegated to interpreter', scores: { coordination: -12 } }));
     if (has(act, 'promise')) findings.push(incident(record, act, world, 'unauthorized-commitment', 'serious',
       who + ' repeats the promised support to the people nearby and asks when it will arrive. The team now has to correct an expectation it has not established authority or resources to meet.',
@@ -98,6 +98,7 @@ export function engagementPolicy(record, world = {}) {
     const who = sentenceCase(act.target || primary(record));
     let introduced = engaged.has(act.target || primary(record));
     const speaker = act.target || primary(record);
+    const speakerKnowledge = knowledgeFor(record.context, speaker);
     if (act.negated || act.hypothetical || act.actor !== 'trainee') continue;
     if (has(act, 'accountability')) {
       const active = (world.persistentConditions || []).filter(c => c.status === 'active');
@@ -108,7 +109,7 @@ export function engagementPolicy(record, world = {}) {
         { conditionChanges: reported ? active.filter(c => c.severity !== 'critical').map(c => ({ id: c.id, status: 'mitigating' })) : [],
           coaching: active.length ? ['Acknowledgment and reporting begin mitigation. Restrictions and the recorded consequence remain; this is not a reset.'] : [] }));
     }
-    if (has(act, 'invitation') || has(act, 'introduction')) {
+    if (has(act, 'invitation') || has(act, 'introduction') || has(act, 'conversation-opening')) {
       const repeated = (site.engagedParticipants || []).includes(speaker);
       const intro = repeated ? ' recognizes you and returns the greeting. “We have made a start. Which of the questions from our earlier discussion do you want to pursue?” The familiar opening does not add new evidence; the next move is yours.' : ' turns toward the team and joins the exchange. “Thank you for including me. What would you like to understand about our work?” The welcome is measured: you have their attention, not yet their agreement.\n\n“Please hear our situation before deciding what we need.” The invitation gives you a chance to explain your purpose and ask whose perspective is still missing.';
       const translation = any(record, 'interpreter-support') && !unavailable && !any(record, 'interpreter-substitution')
@@ -118,9 +119,20 @@ export function engagementPolicy(record, world = {}) {
       introduced = true;
       engaged.add(speaker);
     }
-    if (has(act, 'gift')) findings.push(credit(record, act, 'gift-protocol',
+    if (has(act, 'gift') && !has(act, 'alcohol-gift')) findings.push(credit(record, act, 'gift-protocol',
       who + ' pauses over the offered gift. “Please explain what this represents.” The gesture is acknowledged, but acceptance is left open while local and official expectations are checked.',
       {}, { coaching: ['The value of a gift does not earn points. Explain intent and check applicable protocol; do not assume acceptance.'] }));
+    if (has(act, 'alcohol-gift')) {
+      const declined = /market/i.test(record.context.location || '') && speaker === 'produce vendor';
+      findings.push(credit(record, act, 'alcohol-gift-response',
+        who + (declined ? ' declines the bottle. The gift remains with the team; conversation can continue.' : ' asks to leave the bottle with the team while appropriate gift expectations are clarified. Acceptance has not been established.'), {},
+        { giftResponses: [{ participant: speaker, status: declined ? 'declined' : 'not-accepted', item: 'alcohol', sourceActionId: record.id }],
+          coaching: ['Respect the individual response and clarify applicable gift protocol. The gift itself earns no points.'] }));
+    }
+    if (has(act, 'respect-refusal') && site.giftResponses?.some(g => g.participant === speaker)) findings.push(credit(record, act, 'respect-gift-response',
+      who + ' notices that you put the gift aside. The earlier answer has been respected, and the conversation can return to its purpose.', {}));
+    if (has(act, 'rapport-intent')) findings.push(credit(record, act, 'rapport-intent',
+      who + ' waits for you to give the conversation a direction. Building rapport is your purpose, not yet an established change in trust. You can explain why you came or ask what matters to this person.', {}));
     if (has(act, 'local-orientation')) findings.push(credit(record, act, 'local-orientation',
       'The interpreter stays alongside the team as you get your bearings. “I can help with language and local context. Let us check our impressions with the people who work here.” You remain responsible for the engagement; asking for orientation has not delegated leadership.\n\nThe wider scene is still open to you. No meeting has been recorded as missed, and the listed contact remains a possible next stop.',
       { initiative: 15, missionFocus: 10 }, { interpreterStatus: 'available', coaching: ['Orientation can support the mission. Distinguish an interpreter’s perspective from verified information and keep any actual appointments in view.'] }));
@@ -159,9 +171,9 @@ export function engagementPolicy(record, world = {}) {
       } else if (act.topic) {
         const prior = (site.claims || []).find(c => c.source === speaker);
         findings.push(credit(record, act, prior ? 'follow-up-inquiry' : 'focused-inquiry',
-          who + ' says, “' + (prior ? knowledge.reply : knowledge.claim) + '” ' + (introduced ? '' : 'The host first asks the team to explain its purpose. ') + 'This remains an attributed account, not a confirmed fact.',
+          who + ' says, “' + (prior ? speakerKnowledge.reply : speakerKnowledge.claim) + '” ' + (introduced ? '' : 'The host first asks the team to explain its purpose. ') + 'This remains an attributed account, not a confirmed fact.',
           introduced ? { informationCollection: prior ? 15 : 45, missionFocus: 20, rapport: 10 } : { informationCollection: 20 },
-          { discoveries: [{ id: knowledge.id + ':' + speaker, text: knowledge.claim, source: speaker, reliability: 'claim' }],
+          { discoveries: [{ id: knowledge.id + ':' + speaker, text: prior ? speakerKnowledge.claim + ' ' + speakerKnowledge.reply : speakerKnowledge.claim, source: speaker, reliability: 'claim' }],
             gaps: { opened: [knowledge.issue], advanced: [], resolved: [] },
             leads: /\b(?:who else|source|depend|connect|lead|responsib|other)\w*\b/.test(act.description) && record.context.lead
               ? { opened: [{ ...record.context.lead, status: 'open' }], changed: [] } : undefined }));

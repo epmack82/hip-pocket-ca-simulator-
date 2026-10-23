@@ -88,12 +88,24 @@ export function parseLocalAction(rawText = '', scenario = {}, world = {}) {
     const kinds = definitions.filter(([kind, re]) => {
       const match = clause.match(re);
       if (!match) return false;
+      // Assistance with introductions does not establish transfer of leadership.
+      if (kind === 'interpreter-substitution' && !/\b(?:alone|in my place|instead of me|take over|lead the meeting|handle the meeting)\b/.test(clause)
+        && !/\bwhile\s+i\s+(?:go|leave|walk away|head off)\b/.test(text)) return false;
       const before = clause.slice(0, match.index);
       if (/\b(?:not|never|won't|don't)\s+(?:\w+\s+){0,2}$/.test(before)) return false;
       if (kind === 'violence' && /\b(?:kick|shoot)\b/.test(match[0]) && /\b(?:soccer|football|ball|photo|picture|video|basket)\b/.test(clause) && !/\b(?:person|teacher|administrator|host|child|children|patient|guard|soldier)\b/.test(clause.slice(match.index + match[0].length, match.index + match[0].length + 35))) return false;
       if (kind === 'destruction' && /\b(?:break the ice|destroy (?:the )?(?:rumor|rumour|myth)|burn (?:the )?midnight oil)\b/.test(clause)) return false;
       return true;
     }).map(([kind]) => kind);
+    if (/\b(?:interpreter|translator)\b/.test(clause) && /\b(?:introduc\w*|translate|interpret|work with|assist|help)\b/.test(clause) && !kinds.includes('interpreter-substitution')) kinds.push('interpreter-support');
+    if (targets.length && /\b(?:talk|speak|meet)\s+(?:to|with)\b/.test(clause)) kinds.push('conversation-opening');
+    if (/\b(?:build|building|establish|establishing)\s+rapport\b/.test(clause)) kinds.push('rapport-intent');
+    if (/\b(?:offer|give|present|hand)\b.{0,90}\b(?:whiskey|whisky|wine|beer|vodka|alcohol)\b/.test(clause) && /\b(?:gift|token|thanks|gratitude)\b/.test(clause)) {
+      kinds.push('alcohol-gift');
+      const substance = kinds.indexOf('substance-offer');
+      if (substance >= 0 && !/\b(?:drugs|pills)\b/.test(clause)) kinds.splice(substance, 1);
+    }
+    if (/\b(?:put|take|keep|withdraw)\b.{0,30}\b(?:bottle|gift)\b.{0,20}\b(?:away|back)|\brespect\b.{0,25}\b(?:refusal|decision)\b/.test(clause)) kinds.push('respect-refusal');
     const promise = /\b(?:promise|guarantee|(?:i|we|the army|the team)\s+will\s+(?:buy|build|bring|deliver|fix|fund|replace|provide|pay))\b/.test(clause)
       && /\b(?:assistance|support|money|funds|supplies|equipment|school|clinic|water|window|building|truck|repair|buy|build|pay)\b/.test(clause)
       && !/\b(?:cannot|can't|no|never|not to|not authorized to)\s+(?:make\s+)?(?:promise|guarantee|provide|commit)|\b(?:provide|deliver)\s+(?:an?\s+)?(?:update|report|brief)\b/.test(clause);

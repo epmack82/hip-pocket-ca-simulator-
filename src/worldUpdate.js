@@ -19,7 +19,7 @@ export function createWorldUpdate(input = {}) {
     gaps: { opened: [], advanced: [], resolved: [] }, leads: { opened: [], changed: [] },
     products: { accepted: [], missing: [], incomplete: [], rejected: [] },
     scoreChanges: [], persistentConditions: [], conditionChanges: [], engagedParticipants: [],
-    permissions: [], creditKeys: [], missionOutcome: null, coaching: [], ...input
+    permissions: [], creditKeys: [], giftResponses: [], missionOutcome: null, coaching: [], ...input
   };
 }
 
@@ -69,6 +69,8 @@ export function applyWorldUpdate(world = {}, update, record = {}) {
     advancedGaps: unique([...(previous.advancedGaps || []), ...update.gaps.advanced]),
     leads: mergeById(previous.leads, [...update.leads.opened, ...update.leads.changed]),
     followUpRequests: mergeById(previous.followUpRequests, update.followUpRequests),
+    giftResponses: [...(previous.giftResponses || []), ...(update.giftResponses || [])],
+    conversationEvents: mergeById(previous.conversationEvents, update.conversationEvents),
     completedProducts: unique([...(previous.completedProducts || []), ...update.products.accepted]),
     engagedParticipants: unique([...(previous.engagedParticipants || []), ...update.engagedParticipants]),
     conversationTarget: conversation.length ? conversation[conversation.length - 1].target : previous.conversationTarget,

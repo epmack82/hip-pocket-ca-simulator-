@@ -4,7 +4,7 @@ import { FOUNDATION_POLICIES } from './foundationPolicies';
 import { parseLocalAction } from './localActionParser';
 import { worksheetCompletion } from './worksheetCompletion';
 import { evaluateOffline } from './offlineEvaluator';
-import { authorMarketReactions, marketFollowUps } from './marketScene';
+import { authorMarketReactions, marketFollowUps, marketConversationEvents } from './marketScene';
 
 const severityRank = { none: 0, coaching: 1, concern: 2, serious: 3, critical: 4 };
 const unique = values => [...new Set((values || []).filter(Boolean))];
@@ -72,7 +72,7 @@ function reduceFindings(record, findings, world) {
   for (const finding of operative) {
     const repeatedCredit = finding.creditKey && awarded.has(finding.creditKey);
     if (finding.creditKey) awarded.add(finding.creditKey);
-    ['effects', 'coaching', 'teamReactions', 'localReactions', 'discoveries', 'persistentConditions', 'conditionChanges', 'permissions', 'engagedParticipants', 'acceptedActs', 'rejectedActs'].forEach(key => {
+    ['effects', 'coaching', 'teamReactions', 'localReactions', 'discoveries', 'persistentConditions', 'conditionChanges', 'permissions', 'engagedParticipants', 'acceptedActs', 'rejectedActs', 'giftResponses'].forEach(key => {
       update[key].push(...(finding[key] || []));
     });
     if (!repeatedCredit) {
@@ -142,6 +142,7 @@ export function processUnifiedAction(input = {}, policies = DEFAULT_ACTION_POLIC
   findings = authorMarketReactions(actionRecord, findings, world);
   const worldUpdate = reduceFindings(actionRecord, findings, world);
   worldUpdate.followUpRequests = marketFollowUps(actionRecord, worldUpdate);
+  worldUpdate.conversationEvents = marketConversationEvents(actionRecord, worldUpdate);
   if (input.activeLead && worldUpdate.severity === 'none' && worldUpdate.discoveries.length) {
     worldUpdate.leads.changed.push({ ...input.activeLead, status: 'completed' });
     worldUpdate.effects.push('The team records this source visit against the developed lead. The account remains attributed; visiting a second person does not by itself prove the original claim.');
