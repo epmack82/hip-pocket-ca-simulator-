@@ -26,3 +26,19 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+/* Native buttons otherwise retain black text inside the dark action panel. */
+[aria-label="Market investigation"] button,
+[aria-label="Answer the market character"] button {
+  color: #f1f5f9;
+  background-color: #1e293b;
+}
+[aria-label="Market investigation"] button:hover,
+[aria-label="Answer the market character"] button:hover {
+  background-color: #334155;
+}
+[aria-label="Market investigation"] button:focus-visible,
+[aria-label="Answer the market character"] button:focus-visible {
+  outline: 2px solid #fcd34d;
+  outline-offset: 3px;
+}

@@ -52,7 +52,7 @@ const marketVoices = {
     reply: 'Separate the route being open from a vendor being able to use it. Ask the vendors about their own journeys before deciding transport explains the closures.'
   },
   'market association chair': {
-    claim: 'The summary says trading is normal, yet some stalls remain closed. I want the people absent from this conversation to have a chance to explain their situation.',
+    claim: 'Some stalls remain closed. You can hear from the people trading today, but the owners who have not reopened need a voice too. I cannot give you their reasons for them.',
     reply: 'Please do not turn my account into everyone’s agreement. Compare the register with what you see, then hear from the people whose stalls are closed.'
   },
   'municipal licensing officer': {

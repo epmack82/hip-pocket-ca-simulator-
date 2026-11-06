@@ -30,7 +30,8 @@ test('market prose is richer but preserves every non-presentation finding field'
   const [reworded] = authorMarketReactions(turn.actionRecord, [finding], {});
   expect({ ...reworded, effects: [] }).toEqual({ ...finding, effects: [] });
   expect(reworded.effects[0]).toContain('Mali (market association chair) says');
-  expect(outcomeFromTurn(turn).narrativeOutcome).toContain('not a confirmed cause');
+  expect(turn.worldUpdate.discoveries.length).toBeGreaterThan(0);
+  expect(turn.worldUpdate.discoveries.every(d => d.reliability === 'claim')).toBe(true);
   expect(conversationParagraphs(reworded.effects[0]).some(p => p.type === 'dialogue')).toBe(true);
 });
 test('repeated greetings remember the person without farming relationship credit', () => {

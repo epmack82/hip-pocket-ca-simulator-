@@ -6,6 +6,9 @@ import { worksheetCompletion } from './worksheetCompletion';
 import { evaluateOffline } from './offlineEvaluator';
 import { authorMarketReactions, marketFollowUps, marketConversationEvents } from './marketScene';
 import { clinicTurn } from './clinicDialogue';
+import { resolveMarketReply } from './MarketReplyChoices';
+import { marketCharacter } from './marketScene';
+import { resolveAbsentVendor, absentVendorFinding } from './absentVendor';
 
 const severityRank = { none: 0, coaching: 1, concern: 2, serious: 3, critical: 4 };
 const unique = values => [...new Set((values || []).filter(Boolean))];
@@ -129,7 +132,9 @@ export function processUnifiedAction(input = {}, policies = DEFAULT_ACTION_POLIC
   const world = input.worldState || {};
   if (world.missionOutcome?.terminated) return { ok: false, errors: ['This mission has ended. Review the AAR or start a new mission.'] };
   const scenario = input.scenario || { id: input.scenarioId, location: input.location, siteType: input.siteType, keyStakeholders: input.stakeholders || [] };
-  const interpretation = input.interpretation || (['product', 'skip'].includes(input.kind)
+  const marketReply = resolveMarketReply(input, scenario, world);
+  const absentVendor = resolveAbsentVendor(input, scenario, world);
+  const interpretation = absentVendor ? { source: 'structured-ui', intent: 'conversation', actions: [{ description: input.rawText, actor: 'trainee', target: 'Anong (absent stallholder)', kinds: ['authored-conversation'], confidence: 100 }] } : input.interpretation || (['product', 'skip'].includes(input.kind)
     ? { source: 'structured-ui', intent: input.kind, actions: [{ description: input.kind === 'product' ? 'Submit worksheet: ' + input.productName : 'Leave without engagement', actor: 'trainee', kinds: [input.kind], confidence: 100 }] }
     : parseLocalAction(input.rawText, scenario, world));
   const actionRecord = createActionRecord({ ...input, interpretation });
@@ -140,10 +145,17 @@ export function processUnifiedAction(input = {}, policies = DEFAULT_ACTION_POLIC
     : input.kind === 'skip' ? [{
       id: 'departed-without-engagement', severity: 'none', effects: ['The team leaves without engaging. The host has received no explanation of the visit, and the site’s information requirements remain open.']
     }] : policies.flatMap(policy => policy(actionRecord, world) || []);
+  if (marketReply) {
+    const person = marketCharacter(marketReply.role);
+    findings = [{ id: 'market-question-answered', severity: 'none',
+      effects: [`${person.name} listens through the end of your answer. The conversation has moved from what is happening here to what your team will carry away.\n\n${person.name} (${person.role}) says, “${marketReply.answer}”\n\nYour stated approach is recorded. Following through remains your next decision.`] }];
+  }
+  if (absentVendor) findings = [absentVendorFinding(absentVendor, actionRecord)];
   findings = authorMarketReactions(actionRecord, findings, world);
   const worldUpdate = reduceFindings(actionRecord, findings, world);
   worldUpdate.followUpRequests = marketFollowUps(actionRecord, worldUpdate);
   worldUpdate.conversationEvents = marketConversationEvents(actionRecord, worldUpdate);
+  if (marketReply) worldUpdate.conversationEvents.push({ id: actionRecord.id + ':reply', participant: marketReply.role, kind: 'reply', replyTo: marketReply.replyTo, subject: input.rawText, sourceActionId: actionRecord.id });
   worldUpdate.clinicTurns = clinicTurn(actionRecord, worldUpdate);
   if (input.activeLead && worldUpdate.severity === 'none' && worldUpdate.discoveries.length) {
     worldUpdate.leads.changed.push({ ...input.activeLead, status: 'completed' });

@@ -6,6 +6,7 @@ const aliases = { municiple: 'municipal', municipial: 'municipal', introducions:
 
 export function normalizeActionText(value = '') {
   return String(value).normalize('NFKC').toLowerCase().replace(/[’‘]/g, "'")
+    .replace(/\bgive a give of thanks\b/g, 'give a gift of thanks')
     .replace(/\bc[ -]?4\b/g, 'c4').replace(/\b[a-z]+\b/g, word => aliases[word] || word);
 }
 
@@ -101,6 +102,14 @@ export function parseLocalAction(rawText = '', scenario = {}, world = {}) {
     if (/\b(?:interpreter|translator)\b/.test(clause) && /\b(?:introduc\w*|translate|interpret|work with|assist|help)\b/.test(clause) && !kinds.includes('interpreter-substitution')) kinds.push('interpreter-support');
     if (targets.length && /\b(?:talk|speak|meet)\s+(?:to|with)\b/.test(clause)) kinds.push('conversation-opening');
     if (/\b(?:build|building|establish|establishing)\s+rapport\b/.test(clause)) kinds.push('rapport-intent');
+    const shortFollowUp = /^(?:please\s+)?(?:(?:can|could) you\s+)?(?:tell (?:me|us) more|what do you mean|explain (?:that|more)|say more)(?:\s+please)?$/.test(clause);
+    if (shortFollowUp) kinds.push('inquiry');
+    // Explaining an intention to listen is not yet an answered question.
+    if (/\bexplain\s+(?:our|the|my)\s+(?:purpose|mission)\b/.test(clause) && !/\b(?:ask|question|inquire)\b/.test(clause)) {
+      const inquiryIndex = kinds.indexOf('inquiry');
+      if (inquiryIndex >= 0) kinds.splice(inquiryIndex, 1);
+    }
+    if (/market/i.test(`${scenario.metadata?.site || ''} ${scenario.siteType || ''} ${scenario.location || ''}`) && /\bwalk\s+(?:the\s+)?(?:back|rear)\s+rows\b/.test(clause)) kinds.push('observation');
     if (/\b(?:offer|give|present|hand)\b.{0,90}\b(?:whiskey|whisky|wine|beer|vodka|alcohol)\b/.test(clause) && /\b(?:gift|token|thanks|gratitude)\b/.test(clause)) {
       kinds.push('alcohol-gift');
       const substance = kinds.indexOf('substance-offer');
@@ -126,6 +135,7 @@ export function parseLocalAction(rawText = '', scenario = {}, world = {}) {
       confidence: operative.length ? 85 : 25,
       method: /\b(?:records?|ledger|log|inventory|register|second source|another source|independent|direct observation|physical|dates?)\b/.test(clause),
       topic: /\b(?:capacity|condition|water|sanitation|risk|concern|need|problem|issue|priorit|staff|service|change|resource|attendance|enrollment|supply|delay|record|who else)\w*\b/.test(clause)
+        || (shortFollowUp && /market/i.test(`${scenario.metadata?.site || ''} ${scenario.siteType || ''} ${scenario.location || ''}`) && (world.sites?.[scenario.id]?.claims || []).some(claim => claim.source === target))
     });
   });
   const active = actions.filter(a => !a.negated && !a.hypothetical);

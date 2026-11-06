@@ -1,17 +1,33 @@
 import { knowledgeFor, sentenceCase } from './sceneKnowledge';
+import { marketInquiryBeat } from './marketStoryBeats';
 
 // Original fictional character design, not Thai cultural doctrine. Roles stay
 // the canonical keys for saves, scoring and source attribution.
 const cast = {
   'market association chair': { name: 'Mali', portrait: '/art/mali-v1.png', introduction: 'Market association chair', interest: 'Wants the people behind the trading figures to be heard.' },
   'transport cooperative representative': { name: 'Niran', portrait: '/art/niran-v1.png', introduction: 'Transport cooperative representative', interest: 'Wants practical questions about access and the movement of goods.' },
-  'produce vendor': { name: 'Dao', portrait: null, introduction: 'Produce vendor', interest: 'Wants space to describe daily trading without speaking for every vendor.' },
+  'produce vendor': { name: 'Dao', portrait: '/art/dao-v1.png', introduction: 'Produce vendor', interest: 'Wants space to describe daily trading without speaking for every vendor.' },
   'municipal licensing officer': { name: 'Kiet', portrait: null, introduction: 'Municipal licensing officer', interest: 'Wants records interpreted within what they actually measure.' }
 };
 export const isMarket = scenario => /market/i.test(`${scenario?.metadata?.site || ''} ${scenario?.siteType || ''} ${scenario?.location || ''}`);
 export function marketCharacter(role) { return { role, ...(cast[String(role).toLowerCase()] || { name: sentenceCase(role), portrait: null, introduction: sentenceCase(role), interest: 'An individual perspective—not a substitute for other sources.' }) }; }
 export function resolveMarketName(text, stakeholders) {
   return stakeholders.filter(role => cast[role]?.name && new RegExp('\\b' + cast[role].name.toLowerCase() + '\\b').test(text));
+}
+
+// A concrete explanation, not merely the words "explain my purpose".
+export function statesMarketPurpose(act = {}) {
+  return act.kinds?.includes('introduction') && !act.negated && !act.hypothetical && !act.reporting
+    && /\b(?:understand|learn|listen|assess|document)\b/.test(act.description || '')
+    && /\b(?:trading|market|vendors?|livelihoods?|access|conditions)\b/.test(act.description || '');
+}
+
+// The authored reciprocal question is currently one per character, not a new
+// question every time the player repeats an inquiry.
+export function hasAnsweredMarketQuestion(site = {}, participant) {
+  const events = site.conversationEvents || [];
+  const inquiries = new Set(events.filter(event => event.kind === 'inquiry' && event.participant === participant).map(event => event.id));
+  return events.some(event => event.participant === participant && inquiries.has(event.replyTo));
 }
 
 // Presentation changes may replace phrasing, but never scoring, discovered
@@ -39,6 +55,38 @@ export function authorMarketReactions(record, findings, world) {
       };
       dialogue = known ? 'We have made a start. What do you want to follow up before you leave?' : openings[host.role] || 'What would you like to understand about my work here?';
       limit = 'The opening establishes contact, not agreement or a verified finding.';
+      const lastQuestion = [...(site.conversationEvents || [])].reverse().find(event => event.participant === act.target && event.kind === 'inquiry');
+      if (known && lastQuestion && !guarded) {
+        const answered = (site.conversationEvents || []).some(event => event.replyTo === lastQuestion.id);
+        dialogue = answered ? 'We have already talked about what you will carry away from this conversation. Is there something else you want to ask me, or something you need to check?' : 'Before you go, there was something I asked you. We can come back to that, or you can tell me what else you need to understand.';
+        limit = answered ? 'Your earlier exchange remains in the journal. Returning does not create a new source or confirm the earlier account.' : 'The earlier question is still available to answer. You can pick up that thread without collecting the same account again.';
+      }
+      if (!known && !guarded && host.role === 'market association chair') {
+        reaction = 'You approach the woman with the folder and introduce the team. She finishes a sentence to the vendor beside her, then turns toward you. Up close, the folder is worn at its corners; she keeps it tucked against her side rather than offering it over.';
+        dialogue = 'Yes, I am Mali. I help coordinate the market association. What brings your team here today?';
+        limit = 'Mali gives you her attention. Behind her, the vendor returns to work. There is room to begin a conversation, but you have not yet heard her account of the market.';
+      }
+      if (!known && !guarded && host.role === 'produce vendor') {
+        reaction = 'Dao moves a basket away from the edge of her stall as you approach. She lets you finish the introduction, then glances toward the shoppers passing behind you. You step aside so the counter stays clear.';
+        dialogue = 'I am Dao. You can talk to me here, but I need to keep serving people. What did you come to ask?';
+        limit = 'She stays behind her counter. You have her attention between customers, not an appointment that stops her working day.';
+      }
+      if (!known && !guarded && host.role === 'transport cooperative representative') {
+        reaction = 'Niran waits for a handcart to pass before turning toward your team. He listens to the introduction without interrupting, then shifts out of the loading lane to make space for the conversation.';
+        dialogue = 'Niran. I represent the transport cooperative. Are you looking for someone, or do you want to talk about moving goods?';
+        limit = 'He has told you his role, not yet his account. You can explain your purpose without committing the team to a solution.';
+      }
+      if (statesMarketPurpose(act)) {
+        reaction = guarded ? `${host.name} listens to your explanation, still guarded after the earlier incident.` : `${host.name} waits for you to finish explaining why the team came. The conversation now has a subject, rather than just a set of introductions.`;
+        dialogue = host.role === 'market association chair'
+          ? 'All right. You want to understand what is happening here. Where would you like to begin—with my account, with the vendors, or by looking around? Do not let my answer become everybody’s answer.'
+          : host.role === 'produce vendor'
+            ? 'Then start with my stall. I can tell you about my own day. If you want to know why someone else is missing, you will need to hear from them too.'
+            : host.role === 'transport cooperative representative'
+              ? 'All right. I can speak about transport. Keep the road being open separate from a vendor being able to use it. Which part do you want to understand first?'
+              : 'That helps me understand why you came. What would you like to know about my part in the market?';
+        limit = 'You have explained your purpose. No assistance has been promised, and no finding has been established by this exchange.';
+      }
     } else if (finding.id === 'alcohol-gift-response') {
       const prior = site.giftResponses?.some(g => g.participant === act.target);
       const declined = finding.giftResponses?.[0]?.status === 'declined';
@@ -55,11 +103,30 @@ export function authorMarketReactions(record, findings, world) {
       limit = 'Your intent is acknowledged. The next question or explanation will shape the exchange; wider sentiment has not been measured.';
     } else if (['focused-inquiry', 'follow-up-inquiry'].includes(finding.id)) {
       const introduced = site.engagedParticipants?.includes(act.target) || findings.some(f => f.id === 'constructive-engagement-opening' && f.engagedParticipants?.includes(act.target));
-      reaction = `${host.name} weighs the question. ${!introduced ? 'Before going further, the host asks the team to explain its purpose. ' : ''}${/transport/.test(host.role) ? 'The answer returns to the difference between movement through the market and who can actually take part.' : 'The answer shifts attention from the summary to the people it may leave out.'}`;
       const previous = (site.conversationEvents || []).filter(e => e.participant === act.target && e.kind === 'inquiry');
-      if (previous.length > 1) reaction = `${host.name} returns to the limits already discussed. Repeating the question has not produced an independent source or established a cause.`;
+      const beat = marketInquiryBeat(host.role, previous.length);
+      reaction = beat?.reaction || `${host.name} considers your question before answering.`;
+      if (!introduced) reaction += ' Before you part, you still need to explain what your team hopes to do with this information.';
       dialogue = finding.id === 'follow-up-inquiry' ? voice.reply : voice.claim;
-      limit = `${sentenceCase(host.role)} is the source of this attributed account. It remains a claim, not a confirmed cause. You can ask for another perspective, examine what the register measures, or observe the public trading area.`;
+      const answered = hasAnsweredMarketQuestion(site, act.target);
+      if (beat && !answered) dialogue += ` ${beat.question}`;
+      limit = beat?.closing || `${host.name} waits for your next question.`;
+      if (answered) limit = `${host.name} remembers your earlier reply. You can seek a different source, compare the account with a record, or ask a more specific question.`;
+      if (previous.some(event => event.subject === act.description)) {
+        reaction = `${host.name} recognizes the question you asked earlier and takes a moment before answering again.`;
+        limit += ' This is the same person’s account, not independent confirmation.';
+      }
+    } else if (finding.id === 'open-question') {
+      reaction = `${host.name} pauses, giving you room to make the question more specific.`;
+      dialogue = 'Which part would you like to talk about—my work here, what has changed, or who else you should speak with?';
+      limit = 'No account has been added yet. Choose a subject, or explain the part you want clarified.';
+    } else if (finding.id === 'gift-protocol') {
+      reaction = `${host.name} pauses at the mention of a gift. For a moment, the conversation is no longer about the market.`;
+      dialogue = 'What did you have in mind? Please tell me before we go further. I would rather understand the gesture than misunderstand what you expect in return.';
+      limit = 'The offer remains open. Nothing has been accepted; you can explain the gift or set it aside and continue the conversation.';
+    } else if (['site-observation', 'public-observation'].includes(finding.id)) {
+      const approach = site.engagedParticipants?.length ? 'You turn from the conversation toward the trading area.' : 'You move from the entrance into the public trading area, keeping clear of the handcarts.';
+      return { ...finding, effects: [`${approach} For a moment, there is no one explaining the scene for you.\n\n${knowledge.observation}\n\nThe contrast is visible. Its cause is not. A closed stall cannot tell you whether its owner lacks stock, cannot reach the market, or has another reason for staying away. Those are questions to investigate, not conclusions to put in someone else’s mouth.`] };
     } else if (finding.id === 'evidence-comparison') {
       reaction = 'The team sets the attributed account beside the available record. ' + knowledge.record;
       dialogue = 'That is what the book can tell you. Please do not make it say why someone is absent when it never recorded the reason.';
