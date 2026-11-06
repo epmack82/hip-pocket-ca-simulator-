@@ -4,6 +4,7 @@ import { blankDraft, readStudy, writeStudy, submitStudy, buildStudyReport, study
 import { downloadFile } from './performanceReport';
 import './studyPractice.css';
 import TemplateWorkshop from './TemplateWorkshop';
+import FundamentalsQuiz from './FundamentalsQuiz';
 
 const storage = { getItem: key => window.localStorage.getItem(key), setItem: (key, value) => window.localStorage.setItem(key, value) };
 
@@ -49,6 +50,7 @@ export default function StudyPractice({ onExit }) {
     } catch { setError('The download could not be created. Your work is still shown here; try again or copy it before leaving.'); }
   }
   if (selected === 'workshop') return <TemplateWorkshop onExit={() => open(null)} />;
+  if (selected === 'fundamentals') return <FundamentalsQuiz onExit={() => open(null)} />;
   return <main className="study-shell">
     <div className="study-wrap">
       <nav className="study-nav" aria-label="Study navigation">
@@ -72,18 +74,19 @@ export default function StudyPractice({ onExit }) {
           <p>Submission is not a passing grade. Review knowledge-check feedback, then discuss written work with your first-line leader.</p>
         </section>
         <div className="study-grid">
+          <article className="study-card"><p className="study-eyebrow">TEST YOUR FOUNDATIONS</p><h2>Civil Affairs fundamentals</h2><p>Start with a civil-considerations knowledge check, separate from the game. Answer first; review explanations after submission. Additional schoolhouse-aligned topics require source and instructor review.</p><button className="study-primary" onClick={() => open('fundamentals')}>Start Fundamentals Test</button></article>
           <article className="study-card"><p className="study-eyebrow">PRODUCT PRACTICE</p><h2>Template Workshop</h2><p>Explore and practice detailed reports separately from the short mission-product flow. Keep drafts, download your work, and discuss it with a leader.</p><button className="study-primary" onClick={() => open('workshop')}>Open Template Workshop</button></article>
-          {STUDY_LESSONS.map((l, index) => {
+          <details className="study-card"><summary>Optional scenario-based writing labs (separate from the fundamentals test)</summary>{STUDY_LESSONS.map((l, index) => {
             const saved = data.modules[l.id];
             const submittedAttempts = saved?.attempts.filter(a => a.lessonVersion === STUDY_VERSION) || [];
             const hasDraft = saved?.draft.version === STUDY_VERSION && !saved.draft.submitted;
             return <article className="study-card" key={l.id}>
-              <p className="study-eyebrow">0{index + 1} · {l.duration}</p>
+              <p className="study-eyebrow">WRITTEN PRACTICE LAB · 0{index + 1} · {l.duration}</p>
               <h2>{l.title}</h2><p>{l.objective}</p>
               <p className="study-small">{submittedAttempts.length ? `${submittedAttempts.length} attempt(s) submitted · leader review pending` : 'Not submitted'}{hasDraft ? ' · draft in progress' : ''}</p>
               <button className="study-primary" onClick={() => open(l.id)}>{hasDraft ? 'Continue' : submittedAttempts.length ? 'Review' : 'Open'}: {l.title}</button>
             </article>;
-          })}
+          })}</details>
         </div>
         <section className="study-card study-export" aria-labelledby="export-heading">
           <h2 id="export-heading">Take your work to the discussion</h2>
@@ -96,7 +99,7 @@ export default function StudyPractice({ onExit }) {
         <details className="study-card"><summary>Reference scope and upcoming practice</summary><p>These are original fictional exercises with transparent, draft practice criteria. They are not an approved schoolhouse assessment. No schoolhouse documents or held materials are bundled in this area.</p><p>OPORD analysis, capabilities briefs, COA comparison and MOP/MOE exercises are planned after the relevant reference editions and criteria are reviewed. The development reference library is separate; this application does not search it at runtime.</p></details>
       </> : <>
         <div className="study-lesson-grid">
-          <section className="study-card" aria-labelledby="concept-heading"><h2 id="concept-heading">Before you practice</h2>{lesson.concepts.map(([title, detail]) => <div className="study-concept" key={title}><h3>{title}</h3><p>{detail}</p></div>)}<p className="study-small">{lesson.referenceNote}</p></section>
+          {submitted && <section className="study-card" aria-labelledby="concept-heading"><h2 id="concept-heading">Review the principles</h2>{lesson.concepts.map(([title, detail]) => <div className="study-concept" key={title}><h3>{title}</h3><p>{detail}</p></div>)}<p className="study-small">{lesson.referenceNote}</p></section>}
           <section className="study-card study-scene" aria-labelledby="scene-heading"><p className="study-eyebrow">YOUR EVIDENCE</p><h2 id="scene-heading">Read the situation</h2><p>{lesson.scene}</p><p className="study-small">Use these facts. Do not assume events, permissions or results that are not stated.</p></section>
         </div>
         <form onSubmit={submit} className="study-card study-form">

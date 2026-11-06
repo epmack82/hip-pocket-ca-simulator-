@@ -33,18 +33,13 @@ export default function MarketScenePanel({ scenario, site = {}, text, continued 
         <div className="market-cast-grid">{(scenario.keyStakeholders || []).map(role => {
           const person = marketCharacter(role);
           const engaged = (site.engagedParticipants || []).includes(role);
-          return <article key={role} className="market-person">
+          return <details key={role} className="market-person compact-person"><summary>
             {person.portrait ? <img src={person.portrait} alt={`Illustrated portrait of ${person.name}`} loading="lazy" /> : <div className="market-initial" aria-hidden="true">{person.name.charAt(0)}</div>}
-            <div><h4>{person.name}</h4><p className="market-role">{person.introduction}</p><p className="market-interest">{person.interest}</p><span className={engaged ? 'market-engaged' : 'market-unmet'}>{engaged ? 'Directly engaged' : 'Available · introduction not recorded'}</span></div>
-          </article>;
+            <strong>{person.name}</strong></summary><div><p className="market-role">{person.introduction}</p><p className="market-interest">{person.interest}</p><span className={engaged ? 'market-engaged' : 'market-unmet'}>{engaged ? 'Directly engaged' : 'Available · introduction not recorded'}</span></div>
+          </details>;
         })}</div>
         <p className="field-small">Use a character’s name or role in your action. A person’s account is one perspective, not the view of the whole community.</p>
       </section>
-      <FollowUpNotes site={site} />
-      {!!site.conversationEvents?.length && <details className="field-followups"><summary className="field-eyebrow">Conversation journal · What you have discussed</summary>
-        <p className="field-small">Recorded actions, not proof of agreement. Claims still need validation.</p>
-        <ul>{site.conversationEvents.map(event => <li key={event.id}><strong>{marketCharacter(event.participant).name}</strong><p>{event.subject}</p><span>{event.evidenceIds.length ? 'Attributed account recorded' : 'No new evidence recorded'}</span></li>)}</ul>
-      </details>}
     </div>
   </section>;
 }

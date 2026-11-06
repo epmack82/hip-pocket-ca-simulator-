@@ -24,7 +24,9 @@ export function siteOrientation(scenario = {}) {
     purpose: objective ? objective.charAt(0).toUpperCase() + objective.slice(1) + '.' : 'Understand local conditions, whose perspectives are missing, and what requires independent confirmation.',
     // Older saves retain the combined narrative; split for display without
     // modifying the saved scene or the identity of its generated location.
-    arrival: String(scenario.narrative || '').split(/\n\nYour task is to\b/)[0]
+    arrival: /market/i.test(`${scenario.metadata?.site || ''} ${scenario.siteType || ''} ${scenario.location || ''}`)
+      ? 'A delivery engine rattles at the edge of the market. Handcarts squeeze between shoppers; somewhere beneath the awnings, two vendors bargain over a crate. Several shutters are down, but from the entrance you cannot tell why. Your team steps clear of the traffic. No one has stopped working to receive you.\n\nYour contact notes list Mali, the market association chair. Near the loading area, a woman with a folder is speaking to a vendor. She may be the person you came to find—you will need to ask. Your interpreter waits beside you, ready to help you introduce the team.\n\nYou can approach someone, ask who coordinates the market, or take a look around the public trading area first. The conversation has not begun; your next move is yours.'
+      : String(scenario.narrative || '').split(/\n\nYour task is to\b/)[0]
   };
 }
 

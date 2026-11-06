@@ -24,7 +24,7 @@ test('planning does not expose arrival details, complications, records, or undev
   const brief = siteOrientation(scenario);
   expect(brief.contact).toBe(scenario.keyStakeholders[0]);
   expect(brief.arrival).not.toContain('Your task is to');
-  expect(brief.arrival).toContain(scenario.injects[0].text);
+  if (scenario.metadata?.site !== 'market') expect(brief.arrival).toContain(scenario.injects[0].text);
   expect(brief.purpose.toLowerCase()).toContain(scenario.metadata.trainingObjective);
   expect(brief.report).not.toContain(scenario.injects[0].text);
   expect(knownPlanningLeads({})).toEqual([]);

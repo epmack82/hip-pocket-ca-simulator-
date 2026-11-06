@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Simulate } from 'react-dom/test-utils';
 import App from './App';
 import { generateMission } from './scenarioEngine';
+import * as scenarioEngine from './scenarioEngine';
 import { conversationParagraphs } from './marketScene';
 
 let container, root;
@@ -22,6 +23,12 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); container.remove(); jest.restoreAllMocks(); });
 const text = () => container.textContent;
 function click(label) {
+  if (label === 'Plan Your First Move' && text().includes('Brief AO Command')) {
+    click('Brief AO Command');
+    [...container.querySelectorAll('textarea')].forEach(field => enter(field, 'Exercise briefing: team contributions, mission support, limitations and requested guidance.'));
+    act(() => Simulate.submit(container.querySelector('form')));
+    return;
+  }
   const buttons = [...container.querySelectorAll('button')];
   const button = buttons.find(el => el.textContent.trim() === label) || buttons.find(el => el.textContent.trim().startsWith(label));
   // Clinic dialogue stays in the scene rather than requiring an outcome-page hop.
@@ -31,6 +38,7 @@ function click(label) {
   }
   if (!button) throw new Error('Missing button: ' + label + '\n' + text().slice(0, 1600));
   act(() => button.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  if (label === 'Conclude Site & Continue' && text().includes('What you carry out of the market')) click('Leave Market & Continue Mission');
 }
 function enter(element, value) { act(() => Simulate.change(element, { target: { value } })); }
 function chooseSite(index = 0) {
@@ -53,7 +61,85 @@ function start(planningOnly = false) {
 }
 function submit(value) { enter(container.querySelector('textarea'), value); click('Submit Action'); }
 
+test('game entry leads with one start button above the training tools', () => {
+  const buttons = [...container.querySelectorAll('button')];
+  expect(buttons[0].textContent).toContain('Start New Game');
+  expect(buttons.filter(b => b.textContent.includes('Start New Game'))).toHaveLength(1);
+  expect(text()).toContain('Study & Staff Practice');
+  expect(text()).toContain('Classroom OPORD Exercise');
+});
+
+test('absent vendor follow-up progresses through consent and survives reload', () => {
+  start();
+  click('Hear Mali');
+  click('Try to reach the missing voices');
+  click('Check whether an owner can speak');
+  expect(text()).toContain('Anong can speak briefly by phone');
+  click('Save & Exit'); click('Load');
+  click('Introduce the team and ask to continue');
+  expect(text()).toContain('Not opening is not the same as wanting to leave');
+  click('Ask what is keeping her stall closed');
+  expect(text()).toContain('Right now I cannot manage both');
+  click('Ask what could help test her account');
+  expect(text()).toContain('not an appointment or a set of verified figures');
+  expect(JSON.parse(localStorage.getItem('hipPocket_saves'))[0].missionRecords).toHaveLength(0);
+});
+
+test('market investigation choices stay in scene and preserve progress after reload', () => {
+  start();
+  expect(container.querySelector('[aria-label="Market investigation"]')).not.toBeNull();
+  click('Walk the public trading area');
+  expect(container.querySelector('[aria-label="Market encounter"]')).not.toBeNull();
+  expect(text()).toContain('The contrast is visible. Its cause is not.');
+  click('Save & Exit'); click('Load');
+  expect(text()).toContain('Look again at the trading area');
+  click('Hear Mali');
+  expect(text()).toContain('Compare the account with the stall register');
+  click('Compare the account with the stall register');
+  expect(text()).toContain('Revisit the register comparison');
+  expect(container.querySelector('[aria-label="Market encounter"]')).not.toBeNull();
+});
+
+test('market departure review survives reload and staying does not consume a visit', () => {
+  start();
+  submit('I greet Mali. I ask Mali about current service conditions.');
+  click('Continue Scene');
+  const conclude = [...container.querySelectorAll('button')].find(b => b.textContent.includes('Conclude Site & Continue'));
+  act(() => conclude.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  expect(text()).toContain('What you carry out of the market');
+  click('Save & Exit'); click('Load');
+  expect(text()).toContain('What you carry out of the market');
+  expect(JSON.parse(localStorage.getItem('hipPocket_saves'))[0].missionRecords).toHaveLength(0);
+  click('Stay & Continue Conversation');
+  expect(container.querySelector('[aria-label="Market encounter"]')).not.toBeNull();
+  click('Conclude Site & Continue');
+  const saved = JSON.parse(localStorage.getItem('hipPocket_saves'))[0];
+  expect(saved.missionRecords).toHaveLength(1);
+  expect(saved.missionRecords[0].marketHandover.voices).toContain('Mali');
+});
+
+test('required arrival brief blocks travel and preserves unfinished draft', () => {
+  click('Start New');
+  const fields = container.querySelectorAll('input');
+  enter(fields[0], 'Tester'); enter(fields[1], 'TEST');
+  click('Continue'); click('CA Specialist'); click('3-Day Drill Weekend');
+  click('Skip Refreshers for Testing'); click('Brief AO Command');
+  expect(container.querySelector('input[name="destination"]')).toBeNull();
+  expect([...container.querySelectorAll('button')].find(b => b.textContent === 'Record Brief & Plan First Move').disabled).toBe(true);
+  enter(container.querySelector('textarea'), 'My team introduction');
+  click('Save & Exit'); click('Load');
+  expect(container.querySelector('textarea').value).toBe('My team introduction');
+  expect(text()).toContain('Capabilities Brief to AO Command');
+  [...container.querySelectorAll('textarea')].forEach(field => enter(field, 'An original exercise briefing point.'));
+  act(() => Simulate.submit(container.querySelector('form')));
+  expect(container.querySelector('input[name="destination"]')).not.toBeNull();
+  expect(JSON.parse(localStorage.getItem('hipPocket_saves'))[0].capabilitiesBrief.completed).toBe(true);
+});
+
 test('clinic dialogue choices stay in scene and journal survives save/reload', () => {
+  const clinicSeed = Array.from({ length: 100 }, (_, i) => `CLINIC-UI-${i}`).find(seed => generateMission({ seed, days: 3, role: 'specialist', candidateCount: 6, includeMarket: true }).some(s => s.metadata.site === 'clinic'));
+  expect(clinicSeed).toBeDefined();
+  jest.spyOn(scenarioEngine, 'createMissionSeed').mockReturnValue(clinicSeed);
   start(true);
   const radio = [...container.querySelectorAll('input[name="destination"]')].find(el => /clinic/i.test(el.getAttribute('aria-label')));
   expect(radio).toBeDefined();
@@ -71,9 +157,10 @@ test('clinic dialogue choices stay in scene and journal survives save/reload', (
 
 test('market map selection, named hosts and open requests persist through app save/load', () => {
   start(true);
-  const marker = container.querySelector('.atlas-node');
+  const marker = container.querySelector('.travel-pin');
   act(() => marker.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-  expect(marker.classList.contains('is-selected')).toBe(true);
+  expect(marker.getAttribute('aria-pressed')).toBe('true');
+  expect(container.querySelector('.atlas-nodes')).toBeNull();
   expect(container.querySelector('input[name="destination"]').checked).toBe(true);
   click('Travel to Selected Site');
   expect(container.querySelector('img[src="/art/market-arrival-v1.png"]')).not.toBeNull();
@@ -196,14 +283,14 @@ test('study is available before mission setup and leaves an existing mission unc
   click('← Hip Pocket home');
   expect(localStorage.getItem('hipPocket_saves')).toBe(mission);
   click('Load');
-  expect(text()).toContain('Your Purpose Here');
+  expect(text()).toContain('Field Notebook');
   expect(global.fetch).not.toHaveBeenCalled();
 });
 
 test('complete local playthrough, save/reload, authoritative AAR and leader exports without network', () => {
   start();
   submit('I introduce the team. I ask about current service conditions.');
-  expect(text()).toContain('attributed account');
+  expect(text()).toContain('Some stalls remain closed');
   const saved = JSON.parse(localStorage.getItem('hipPocket_saves'))[0];
   expect(saved.worldState.history).toHaveLength(1);
   expect(saved.siteStates).toEqual(saved.worldState.sites);

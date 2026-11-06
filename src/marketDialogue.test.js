@@ -67,9 +67,9 @@ test('conversation memory survives reload and remains scoped to the speaker', ()
   expect(outcomeFromTurn(second).narrativeOutcome).toContain('speak to those owners');
   expect(second.nextWorld.sites[scenario.id].claims).toHaveLength(1);
   const third = run('I ask Dao about service conditions.', second.nextWorld, 'three');
-  expect(outcomeFromTurn(third).narrativeOutcome).toContain('Repeating the question');
+  expect(outcomeFromTurn(third).narrativeOutcome).toContain('recognizes the question you asked earlier');
   const fourth = run('I ask Kiet about current service conditions.', third.nextWorld, 'four');
-  expect(outcomeFromTurn(fourth).narrativeOutcome).not.toContain('Repeating the question');
+  expect(outcomeFromTurn(fourth).narrativeOutcome).toContain('Kiet listens with a measured expression');
   expect(fourth.nextWorld.sites[scenario.id].claims).toHaveLength(2);
   expect(fourth.nextWorld.sites[scenario.id].conversationEvents.filter(e => e.participant === 'produce vendor' && e.kind === 'inquiry')).toHaveLength(3);
 });

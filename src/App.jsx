@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronRight, Send, Package, ArrowRight, Loader2, AlertCircle, RotateCcw, Trash2 } from 'lucide-react';
-import { createMissionSeed, generateMission, summarizeMissionCoverage } from './scenarioEngine';
+import { ChevronRight, Send, Package, ArrowRight, Loader2, AlertCircle, RotateCcw } from 'lucide-react';
+import { createMissionSeed, generateMission } from './scenarioEngine';
 import { buildValidationBrief, createSiteState, siteStatusSummary } from './siteProgression';
 import MissionProductDialog from './MissionProductDialog';
 import SubmissionReceipt from './SubmissionReceipt';
@@ -28,6 +28,13 @@ import MarketScenePanel, { ConversationPanel, FollowUpNotes } from './MarketScen
 import CampaignMap from './CampaignMap';
 import MarketActionHelper from './MarketActionHelper';
 import ClinicConversationPanel from './ClinicConversationPanel';
+import './gameEntry.css';
+import SavedMissionMenu from './SavedMissionMenu';
+import FieldNotebook from './FieldNotebook';
+import MarketDeparture, { marketHandover } from './MarketDeparture';
+import MarketReplyChoices from './MarketReplyChoices';
+import MarketInvestigation from './MarketInvestigation';
+import CapabilitiesBrief, { emptyCapabilitiesBrief, restoreCapabilitiesBrief, briefAllowsTravel, briefReady } from './CapabilitiesBrief';
 import { isClinic } from './clinicDialogue';
 import { isMarket } from './marketScene';
 
@@ -121,6 +128,7 @@ export default function HipPocketV43() {
   const [missionDuration, setMissionDuration] = useState(null); // 3|7|14|29
   const [visitLimit, setVisitLimit] = useState(3);
   const [chiefPlan, setChiefPlan] = useState(emptyChiefPlan);
+  const [capabilitiesBrief, setCapabilitiesBrief] = useState(emptyCapabilitiesBrief);
   const [missionSeed, setMissionSeed] = useState('');
   const [trainingPersonalization, setTrainingPersonalization] = useState(DEFAULT_TRAINING_PERSONALIZATION);
   const [saveSlots, setSaveSlots] = useState([null, null, null, null, null]); // Load from localStorage
@@ -253,6 +261,7 @@ export default function HipPocketV43() {
       missionDuration,
       visitLimit,
       chiefPlan,
+      capabilitiesBrief,
       missionSeed,
       trainingPersonalization,
       missionScenarios,
@@ -320,6 +329,8 @@ export default function HipPocketV43() {
     setMissionDuration(save.missionDuration);
     setVisitLimit(save.visitLimit || save.missionScenarios?.length || save.missionDuration);
     setChiefPlan(save.chiefPlan || emptyChiefPlan());
+    const restoredBrief = restoreCapabilitiesBrief(save);
+    setCapabilitiesBrief(restoredBrief);
     setMissionSeed(save.missionSeed || `LEGACY-${new Date(save.timestamp).getTime()}`);
     setTrainingPersonalization(save.trainingPersonalization || DEFAULT_TRAINING_PERSONALIZATION);
     setMissionScenarios(save.missionScenarios || generateMission({ seed: save.missionSeed || `LEGACY-${new Date(save.timestamp).getTime()}`, days: save.missionDuration, role: save.playerRole }));
@@ -347,7 +358,8 @@ export default function HipPocketV43() {
     setPendingAdvance(save.pendingAdvance || false);
     setLeadReturnPending(save.leadReturnPending || false);
     setCurrentSaveSlot(slotNumber);
-    const preparation = ['chiefPlanning', 'annexKBriefing', 'teamHuddle', 'readinessCheck', 'missionBriefing', 'missionPlanning'];
+    const preparation = ['chiefPlanning', 'annexKBriefing', 'teamHuddle', 'readinessCheck', 'missionBriefing', 'missionPlanning', 'capabilitiesBrief', 'marketDeparture'];
+    if (save.screen === 'missionPlanning' && !briefAllowsTravel(restoredBrief)) { setScreen('capabilitiesBrief'); return; }
     setScreen(save.debrief ? 'debrief' : save.worldState?.missionOutcome?.terminated ? 'missionFailure' : preparation.includes(save.screen) ? save.screen : save.lastOutcome && ['outcomeDisplay', 'productDisplay'].includes(save.screen) ? save.screen : save.pendingAdvance && save.lastOutcome ? 'outcomeDisplay' : 'scenarioScreen');
   }
 
@@ -518,11 +530,21 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
 
   function moveOn() {
     if (loading) return;
+    if (isMarket(currentScenario()) && scenarioRecord) {
+      setScreen('marketDeparture');
+      saveGame(currentSaveSlot, { screen: 'marketDeparture' });
+      return;
+    }
     if (scenarioRecord) finalizeScenario();
     else runEval('Depart without engaging at this location.', 'Departed without engaging', { kind: 'skip', isMoveOn: true });
   }
 
   function openMissionPlanning(overrides = {}) {
+    if (!briefAllowsTravel(overrides.capabilitiesBrief || capabilitiesBrief)) {
+      setScreen('capabilitiesBrief');
+      saveGame(currentSaveSlot, { screen: 'capabilitiesBrief' });
+      return;
+    }
     setPlanningSelection('');
     setPlanningRationale('');
     setPendingAdvance(false);
@@ -533,6 +555,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
   }
 
   function travelToSelectedSite() {
+    if (!briefAllowsTravel(capabilitiesBrief)) { setScreen('capabilitiesBrief'); return; }
     if (missionRecords.length >= visitLimit) return;
     const choice = remainingSites(missionScenarios, missionRecords).find(({ scenario }) => scenario.id === planningSelection);
     if (!choice || worldState.missionOutcome?.terminated) return;
@@ -560,7 +583,8 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
       discSignal: scenarioRecord?.discSignal || 'c',
       consequenceChain: scenarioRecord?.consequenceChain || null,
       day: currentDay,
-      siteProgress: currentSiteState()
+      siteProgress: currentSiteState(),
+      ...(isMarket(scenario) ? { marketHandover: marketHandover(currentSiteState()) } : {})
     };
     const updatedRecords = [...missionRecords, newRecord];
     setMissionRecords(updatedRecords);
@@ -691,6 +715,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
     setMissionDuration(null);
     setVisitLimit(3);
     setChiefPlan(emptyChiefPlan());
+    setCapabilitiesBrief(emptyCapabilitiesBrief());
     setMissionScenarios([]);
     setTrainingPersonalization(DEFAULT_TRAINING_PERSONALIZATION);
     setCurrentDay(1);
@@ -784,21 +809,27 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
   if (screen === 'loadOrNew') {
     const hasSaves = saveSlots.some(s => s !== null);
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 p-8">
-        <div className="max-w-3xl mx-auto">
-          <div className="text-center mb-12">
+      <div className="game-entry min-h-screen p-4 sm:p-8">
+        <div className="max-w-5xl mx-auto">
+          <div className="entry-hero" style={{ '--entry-art': "url('/art/menu-landscape-insignia-v2.png')" }}>
+            <p className="entry-kicker">Listen · Understand · Make a difference</p>
             <h1 className="text-6xl font-bold text-white mb-3">Hip Pocket</h1>
-            <p className="text-blue-200 text-xl mb-2">Civil Affairs Training · {APP_VERSION}</p>
-            <p className="text-slate-400">Save & load • Role-based difficulty • Drill weekend, annual training, deployment</p>
+            <p className="text-blue-200 text-xl mb-2">A Civil Affairs field adventure</p>
+            <p className="entry-intro">Meet the community. Build the picture. Decide what comes next.</p>
+            <button onClick={beginNewGame} className="entry-start">Start New Game <ChevronRight className="inline ml-2 w-5 h-5" /></button>
+            {hasSaves && <SavedMissionMenu slots={saveSlots} describe={getSaveDescription} onLoad={loadGame} onDelete={deleteSave} />}
+            <p className="entry-version">{APP_VERSION} · Fictional training environments</p>
           </div>
 
           <section className="bg-slate-800 rounded-lg p-6 border border-teal-700 mb-8">
+            <img src="/art/study-desk-v1.png" alt="Illustrated study desk with notebook and reference books" className="entry-card-image" />
             <h2 className="text-2xl font-bold text-white mb-2">Study & Staff Practice</h2>
             <p className="text-slate-300 mb-4">Practice engagement preparation, reporting and civil assessment without starting a mission. Save your work and export a report for leader review.</p>
             <button onClick={() => setScreen('studyPractice')} className="bg-teal-700 hover:bg-teal-600 text-white px-6 py-3 rounded-lg font-bold">Open Study & Staff Practice</button>
           </section>
 
           <section className="bg-slate-800 rounded-lg p-6 border border-sky-700 mb-8">
+            <img src="/art/classroom-brief-v1.png" alt="Illustrated classroom planning discussion" className="entry-card-image" />
             <h2 className="text-2xl font-bold text-white mb-2">Classroom OPORD Exercise</h2>
             <p className="text-slate-300 mb-4">Generate a fictional staff exercise for your class: mission analysis, CA contributions across phases, and three-team prioritization. Print student worksheets and separate draft facilitator notes.</p>
             <button onClick={() => setScreen('classroomOpord')} className="bg-sky-700 hover:bg-sky-600 text-white px-6 py-3 rounded-lg font-bold">Open Classroom OPORD Exercise</button>
@@ -814,55 +845,9 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
             </div>
           )}
 
-          {hasSaves && (
-            <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-8">
-              <h2 className="text-2xl font-bold text-white mb-4">CONTINUE GAME</h2>
-              <div className="space-y-2 mb-6">
-                {saveSlots.map((save, idx) => (
-                  <div key={idx} className="bg-slate-700/50 rounded p-3 flex items-center justify-between">
-                    {save ? (
-                      <>
-                        <div className="flex-1">
-                          <p className="text-white font-semibold">{getSaveDescription(save)?.location}</p>
-                          <p className="text-slate-300 text-sm">Day {save.currentDay} of {save.missionDuration} • {save.playerRole} • {getSaveDescription(save)?.timeAgo}</p>
-                        </div>
-                        <button
-                          onClick={() => loadGame(idx)}
-                          className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded font-semibold mr-2"
-                        >
-                          Load
-                        </button>
-                        <button
-                          onClick={() => deleteSave(idx)}
-                          className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </>
-                    ) : (
-                      <p className="text-slate-400 text-sm">[Empty Slot]</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <button
-                onClick={beginNewGame}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-lg font-bold text-lg"
-              >
-                Start New Game
-              </button>
-            </div>
-          )}
-
           {!hasSaves && (
             <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-8">
               <p className="text-slate-400 text-sm mb-6">No saved games. Start a new mission.</p>
-              <button
-                onClick={beginNewGame}
-                className="w-full bg-gradient-to-r from-green-600 to-green-700 hover:from-green-500 hover:to-green-600 text-white px-8 py-4 rounded-lg font-bold text-lg"
-              >
-                Start New Game <ChevronRight className="inline ml-2 w-5 h-5" />
-              </button>
             </div>
           )}
         </div>
@@ -876,7 +861,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-8">
         <div className="max-w-3xl mx-auto">
-          <div className="bg-gradient-to-r from-blue-700 to-blue-800 rounded-lg p-8 mb-8">
+          <div className="entry-banner entry-team rounded-lg p-8 mb-8" style={{ '--entry-art': "url('/art/team-planning-v1.png')" }}>
             <h1 className="text-4xl font-bold text-white">CHARACTER CREATION</h1>
             <p className="text-blue-100 mt-2">Identify yourself before deployment</p>
           </div>
@@ -951,7 +936,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-8">
         <div className="max-w-3xl mx-auto">
-          <div className="bg-gradient-to-r from-purple-700 to-purple-800 rounded-lg p-8 mb-8">
+          <div className="entry-banner entry-team rounded-lg p-8 mb-8" style={{ '--entry-art': "url('/art/team-planning-v1.png')" }}>
             <h1 className="text-4xl font-bold text-white">SELECT YOUR ROLE & DIFFICULTY</h1>
             <p className="text-purple-100 mt-2">Your role determines guidance, scenario complexity and leadership responsibility—not a different standard for what is true.</p>
           </div>
@@ -964,7 +949,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
                   setPlayerRole(role.id);
                   setScreen('missionSelection');
                 }}
-                className="w-full bg-slate-800 hover:bg-slate-700 rounded-lg p-6 border border-slate-700 hover:border-blue-600 text-left transition"
+                className="entry-role w-full bg-slate-800 hover:bg-slate-700 rounded-lg p-6 border border-slate-700 hover:border-blue-600 text-left transition"
               >
                 <div className="flex items-start justify-between mb-2">
                   <h3 className="text-xl font-bold text-white">{role.name}</h3>
@@ -993,7 +978,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-8">
         <div className="max-w-3xl mx-auto">
-          <div className="bg-gradient-to-r from-indigo-700 to-indigo-800 rounded-lg p-8 mb-8">
+          <div className="entry-banner entry-mission rounded-lg p-8 mb-8" style={{ '--entry-art': "url('/art/menu-landscape-v1.png')" }}>
             <h1 className="text-4xl font-bold text-white">SELECT MISSION DURATION</h1>
             <p className="text-indigo-100 mt-2">Choose a simulated training period—not hours of required gameplay. Save and resume whenever you need.</p>
           </div>
@@ -1065,7 +1050,8 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
                         {label}
                         <input
                           type="text"
-                          value={trainingPersonalization.teamNames[key]}
+                          disabled={key === playerRole}
+                          value={key === playerRole ? `${operator.name} (You)` : trainingPersonalization.teamNames[key]}
                           onChange={(event) => setTrainingPersonalization({
                             ...trainingPersonalization,
                             teamNames: {
@@ -1094,6 +1080,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
                   setMissionDuration(dur.days);
                   setVisitLimit(dur.visits);
                   setChiefPlan(emptyChiefPlan());
+                  setCapabilitiesBrief(emptyCapabilitiesBrief());
                   setMissionScenarios(generateMission({ seed, days: dur.days, role: playerRole, candidateCount: dur.destinations, includeMarket: true }));
                   setCurrentDay(1);
                   setScenarioIndex(0);
@@ -1106,8 +1093,9 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
                   setReportNotice('');
                   setScreen(playerRole === 'chief' ? 'chiefPlanning' : 'annexKBriefing');
                 }}
-                className="w-full bg-slate-800 hover:bg-slate-700 rounded-lg p-6 border border-slate-700 hover:border-indigo-600 text-left transition"
+                className="entry-mission-card w-full bg-slate-800 hover:bg-slate-700 rounded-lg p-6 border border-slate-700 hover:border-indigo-600 text-left transition"
               >
+                <img src={dur.days === 3 ? '/art/market-arrival-v1.png' : dur.days === 14 ? '/art/clinic-arrival-v1.png' : '/art/menu-landscape-v1.png'} alt="" loading="lazy" className="entry-card-image" />
                 <div className="flex items-start justify-between mb-2">
                   <h3 className="text-xl font-bold text-white">{dur.name}</h3>
                   <span className="text-slate-400 text-sm">{dur.days} simulated days · {dur.visits} visits</span>
@@ -1137,6 +1125,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
             <h1 className="text-4xl font-bold text-white">ANNEX K — CIVIL AFFAIRS OPERATIONS</h1>
             <p className="text-blue-100 mt-2">Mission context and CA framework</p>
           </div>
+          <img className="briefing-art" src="/art/annex-planning-v1.png" alt="Illustrated planning desk overlooking a fictional riverside community" />
 
           <div className="bg-slate-800 rounded-lg p-8 border border-slate-700 space-y-6">
             <div>
@@ -1233,7 +1222,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
       missionSeed,
       playerRole,
       trainingPersonalization.enabled
-        ? { region: personalizedRegion(), teamNames: trainingPersonalization.teamNames }
+        ? { region: personalizedRegion(), teamNames: { ...trainingPersonalization.teamNames, [playerRole]: operator.name } }
         : {}
     );
     return (
@@ -1398,7 +1387,6 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
       'sgt': 'Team Sergeant',
       'chief': 'Team Chief'
     }[playerRole];
-    const coverage = summarizeMissionCoverage(missionScenarios);
 
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-8">
@@ -1407,6 +1395,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
             <h1 className="text-4xl font-bold text-white">MISSION BRIEFING</h1>
             <p className="text-green-100 mt-2">{personalizedMissionLabel()} — {missionDuration} simulated days</p>
           </div>
+          <img className="briefing-art" src="/art/classroom-brief-v1.png" alt="A military leader briefs Soldiers beside an area-of-operations map" />
 
           <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 space-y-4">
             <div>
@@ -1431,27 +1420,13 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
               <p className="text-slate-400 text-sm mt-2">You can visit {visitLimit} of {missionScenarios.length} possible destinations. Prioritize what you need to learn and leave a useful handover for what you cannot cover. Unvisited destinations are not automatic failures.</p>
             </div>
 
-            <div className="border-t border-slate-700 pt-4">
-              <h3 className="text-slate-300 text-xs font-bold uppercase tracking-wide mb-3">Planned Training Exposure</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div className="bg-slate-900/50 rounded p-3"><p className="text-slate-400 text-xs">Site types</p><p className="text-white text-xl font-bold">{Object.keys(coverage.sites).length}</p></div>
-                <div className="bg-slate-900/50 rounded p-3"><p className="text-slate-400 text-xs">Mission activities</p><p className="text-white text-xl font-bold">{Object.keys(coverage.missions).length}</p></div>
-                <div className="bg-slate-900/50 rounded p-3"><p className="text-slate-400 text-xs">Environments</p><p className="text-white text-xl font-bold">{Object.keys(coverage.environments).length}</p></div>
-                <div className="bg-slate-900/50 rounded p-3"><p className="text-slate-400 text-xs">Complications</p><p className="text-white text-xl font-bold">{Object.keys(coverage.complications).length}</p></div>
-              </div>
-            </div>
-
-            <div className="border-t border-slate-700 pt-4">
-              <h3 className="text-slate-300 text-xs font-bold uppercase tracking-wide mb-2">Field-visit budget</h3>
-              <p className="text-white">{visitLimit} visit slots · {missionScenarios.length} destinations · Play at your own pace</p>
-            </div>
           </div>
 
           <button
             onClick={() => openMissionPlanning()}
             className="w-full bg-gradient-to-r from-green-600 to-green-700 hover:from-green-500 hover:to-green-600 text-white px-8 py-4 rounded-lg font-bold text-lg"
           >
-            Plan Your First Move <ChevronRight className="inline ml-2 w-5 h-5" />
+            Brief AO Command <ChevronRight className="inline ml-2 w-5 h-5" />
           </button>
 
           <button
@@ -1463,6 +1438,23 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
         </div>
       </div>
     );
+  }
+
+  if (screen === 'capabilitiesBrief') {
+    return <CapabilitiesBrief value={capabilitiesBrief} onChange={setCapabilitiesBrief} onSave={saveAndExit}
+      playerName={operator.name} onSkip={() => { const skipped = { ...capabilitiesBrief, skipped: true }; setCapabilitiesBrief(skipped); openMissionPlanning({ capabilitiesBrief: skipped }); }}
+      seed={missionSeed} role={playerRole} names={trainingPersonalization.enabled ? trainingPersonalization.teamNames : {}}
+      onComplete={() => {
+        if (!briefReady(capabilitiesBrief)) return;
+        const completed = { ...capabilitiesBrief, completed: true, completedAt: new Date().toISOString() };
+        setCapabilitiesBrief(completed);
+        openMissionPlanning({ capabilitiesBrief: completed });
+      }} />;
+  }
+
+  if (screen === 'marketDeparture') {
+    return <MarketDeparture site={currentSiteState()} onSave={saveAndExit} onLeave={finalizeScenario}
+      onReturn={() => { setScreen('scenarioScreen'); saveGame(currentSaveSlot, { screen: 'scenarioScreen' }); }} />;
   }
 
   if (screen === 'missionPlanning') {
@@ -1546,7 +1538,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
             <div>
               <p className="text-blue-300 text-sm">Day {currentDay} of {missionDuration} • Visit {missionRecords.length + 1} of {visitLimit} · {missionScenarios.length} possible destinations</p>
               <p className="text-slate-400 text-xs mt-1">Mission seed: {missionSeed}</p>
-              <h1 className="text-4xl font-bold text-white mt-1">{scenario.name}</h1>
+              <h1 className="text-2xl font-bold text-white mt-1">{isMarket(scenario) ? 'Central Market' : scenario.name}</h1>
             </div>
             <div className="text-right">
               <p className="text-slate-400 text-xs">DIFFICULTY</p>
@@ -1562,7 +1554,8 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
 
           <ErrorBanner />
 
-          <section aria-labelledby="site-purpose" className="mb-6 border-l-4 border-cyan-400 bg-slate-800/60 rounded-r-lg px-6 py-5">
+          {isMarket(scenario) && <FieldNotebook scenario={scenario} site={siteState} orientation={orientation} routeChoice={routeChoice} validation={validationBrief} scenarios={missionScenarios} records={missionRecords} visitLimit={visitLimit} sites={worldState.sites || {}} dimensions={SCORE_DIMENSIONS} onProduct={() => setShowProductPanel(true)} onLead={lead => { setActiveLead(lead); setActionText(''); setScreen('leadScene'); }} />}
+          {!isMarket(scenario) && <><section aria-labelledby="site-purpose" className="mb-6 border-l-4 border-cyan-400 bg-slate-800/60 rounded-r-lg px-6 py-5">
             <h2 id="site-purpose" className="text-cyan-200 text-sm font-bold uppercase tracking-wide">Your Purpose Here</h2>
             <p className="text-white mt-2 leading-relaxed">{orientation.purpose} Distinguish reported concerns from verified findings and identify appropriate follow-up.</p>
             {routeChoice && <p className="text-slate-300 text-sm mt-2">You chose this location for Day {routeChoice.day}.{routeChoice.rationale ? ` Your reasoning: ${routeChoice.rationale}` : ''}</p>}
@@ -1573,6 +1566,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
             <summary className="cursor-pointer font-semibold">AO Map · Current location: {scenario.location}</summary>
             <CampaignMap scenarios={missionScenarios} records={missionRecords} selected={scenario.id} visitLimit={visitLimit} sites={worldState.sites || {}} readOnly />
           </details>
+          </>}
 
           <div className="flex flex-col">
           <CommandArrivalNote world={worldState} scenario={scenario} scenarios={missionScenarios} records={missionRecords} />
@@ -1593,7 +1587,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
             </div>
           )}
 
-          {hasProgress && (validationBrief.claims.length > 0 || validationBrief.gaps.length > 0 || validationBrief.leads.length > 0) && (
+          {!isMarket(scenario) && hasProgress && (validationBrief.claims.length > 0 || validationBrief.gaps.length > 0 || validationBrief.leads.length > 0) && (
             <div className="order-first bg-amber-950/30 rounded-lg p-6 border border-amber-600 mb-6">
               <p className="text-amber-300 text-xs font-bold uppercase tracking-wide">Where you left off · What requires validation</p>
               <p className="text-slate-300 text-sm mt-2">
@@ -1653,7 +1647,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
             <p className="whitespace-pre-wrap text-lg leading-8">{hasProgress ? currentContinuityNarrative(siteState, scenario) : orientation.arrival}</p>
           </div>}
 
-          {hasProgress && (
+          {hasProgress && !isMarket(scenario) && (
             <>
             <div className="order-3 bg-blue-950/40 rounded-lg p-6 border border-blue-700 mb-6">
               <p className="text-blue-300 text-xs font-bold uppercase tracking-wide mb-2">Current Mission Status</p>
@@ -1671,7 +1665,7 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
 
               <div className="grid md:grid-cols-2 gap-5 mb-5">
                 <div>
-                  <p className="text-slate-400 text-xs font-bold uppercase mb-2">What you have established</p>
+                  <p className="text-slate-400 text-xs font-bold uppercase mb-2">Recorded findings and accounts — check source status</p>
                   {siteState.discoveries.length ? (
                     <ul className="text-slate-200 text-sm space-y-2 list-disc pl-5">
                       {siteState.discoveries.map(item => <li key={item}>{item}</li>)}
@@ -1711,8 +1705,10 @@ const report = buildPlaytestReport({ missionSeed, turns: playtestTurns, appVersi
             <label className="text-green-300 text-xl font-bold uppercase tracking-wide block mb-2">What Will You Do Next?</label>
             {isMarket(scenario) && <MarketActionHelper key={scenario.id} stakeholders={scenario.keyStakeholders} onDraft={text => setActionText(current => current ? current + '\n' + text : text)} />}
             {isClinic(scenario) && <ClinicConversationPanel key={scenario.id} scenario={scenario} site={siteState} disabled={loading} onSay={text => runEval(text, text, { stayInConversation: true })} />}
+            {isMarket(scenario) && <MarketReplyChoices scenario={scenario} site={siteState} disabled={loading} onSay={text => runEval(text, text, { stayInConversation: true })} />}
+            {isMarket(scenario) && <MarketInvestigation scenario={scenario} site={siteState} world={worldState} disabled={loading} onAct={text => runEval(text, text, { stayInConversation: true })} onProduct={() => setShowProductPanel(true)} />}
             <p className="text-slate-200 mb-4">
-              Make the next decision in the story. Describe what you actually say or do based on the continuity scene, current mission status, and information requiring validation.
+              What do you say or do? Address a character by name, or describe your team's next action.
             </p>
             {showHints && (
               <a href="#optional-next-actions" className="inline-flex items-center gap-2 text-amber-300 hover:text-amber-200 text-sm font-semibold mb-4">
